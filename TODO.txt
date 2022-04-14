@@ -1,0 +1,4 @@
+1. WatchableList annotations => ModelList annotations in templates.py
+2. For O3DGeometryWrapper make it look for function on the o3d geometry object defined as _geometry
+   and then look in it's own function list, for the function call. That way there are not so many
+   geometry._geometry calls in templates.py
