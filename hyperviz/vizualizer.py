@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 import numpy as np
 from PySide6.QtWidgets import QApplication, QFileDialog
+from open3d import utility as o3d_utils
 from open3d import io as o3d_io
 from open3d import visualization as o3d_vis
 from open3d.visualization.gui import Application as o3d_app
@@ -46,6 +47,7 @@ class Vizualizer():
         self.qapp = QApplication()
 
         self._sidepanel = SidePanel(self.model_list, self.text_list)
+        o3d_utils.set_verbosity_level(o3d_utils.VerbosityLevel.Error)
         sys.stdout = self._sidepanel.console
         sys.stderr = self._sidepanel.console
         self._sidepanel.show()
@@ -115,9 +117,9 @@ class Vizualizer():
             raise TypeError('Model does not extend from type hyperviz.O3DBaseModel')
         model.needs_update.false()
         self._window.remove_geometry(model.name)
-        if model.delete is False:
+        if model.delete is False and model.visible:
             self._window.add_geometry(model.asO3Ddict())
-        else:
+        elif model.delete is True:
             self.remove_model(model)
         if self._model_count_rtrig(bool(len(self.model_list))):
             self._window.reset_camera_to_default()

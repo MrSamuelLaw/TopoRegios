@@ -2,3 +2,4 @@ numba
 open3d
 numpy
 pyside6
+pillow

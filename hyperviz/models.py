@@ -8,12 +8,21 @@ from hyperviz.utilities import BoolTrigger, WatchableList
 
 class O3DGeometryWrapper():
     """Wrapper object to allow overwritting/extension of o3d goemetry methods"""
+    
     def __init__(self, o3d_geometry_object):
         self._geometry = o3d_geometry_object
-        for attribute in dir(self._geometry):
-            if not hasattr(self, attribute):
-                method = getattr(self._geometry, attribute)
-                self.__setattr__(attribute, method)
+        for attribute_name in dir(self._geometry):
+            if not hasattr(self, attribute_name):
+                method = getattr(self._geometry, attribute_name)
+                if callable(method):
+                    method = O3DGeometryWrapper.method_wrapper(method)
+                self.__setattr__(attribute_name, method)
+
+    @staticmethod
+    def method_wrapper(method):
+        def wrapper(*args, **kwargs):
+            return method(*args, **kwargs)
+        return wrapper
 
 
 class O3DBaseModel:

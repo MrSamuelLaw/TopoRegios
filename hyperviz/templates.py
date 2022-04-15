@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QWidget, QMenu
 from PySide6.QtWidgets import QGridLayout, QSizePolicy, QSpacerItem, QHBoxLayout
 from PySide6.QtWidgets import QDialog, QListWidget, QListWidgetItem, QPlainTextEdit, QFileDialog
-from PySide6.QtWidgets import QPushButton, QSpinBox, QDoubleSpinBox, QLabel, QCheckBox, QComboBox
+from PySide6.QtWidgets import QPushButton, QSpinBox, QDoubleSpinBox, QLabel, QCheckBox, QComboBox, QRadioButton
 
 """
     Look into using signals and slots 
@@ -105,6 +105,7 @@ class BMPImportDialog(Standard.AsyncDialog):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.setWindowTitle('Import BMP')
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.resize(200, 100)
         
         layout = QGridLayout(parent=self)
@@ -154,6 +155,7 @@ class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
     def __init__(self, model_list: List[O3DBaseModel], name=None, parent=None):
         super().__init__(parent=parent)
         self.setWindowTitle('STL -> Pointcloud')
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.model_list = model_list
         self.setLayout(QGridLayout(parent=self))
         layout: QGridLayout = self.layout()
@@ -336,6 +338,7 @@ class ComparisonDialog(Standard.AsyncDialog):
     def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList[O3DPointCloudModel], parent=None):
         super().__init__(parent=parent)
         self.setWindowTitle('Measurement Dialog')
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self._model_list = model_list
         
         # define the color map
@@ -460,6 +463,7 @@ class RegistrationDialog(Standard.AsyncDialog):
     def __init__(self, target: O3DPointCloudModel, model_list: List[O3DPointCloudModel], parent=None):
         super().__init__(parent=parent)
         self.setWindowTitle('Registration Dialog')
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self._target = target
         self._model_list = model_list
 
@@ -556,12 +560,22 @@ class CroppingDialog(Standard.AsyncDialog):
         self.dropdown.addItems([m.name for m in model_list if isinstance(m, O3DPointCloudModel)])
         self.dropdown.setCurrentText(target.name)
         layout.addWidget(self.dropdown, currow, 1)
-        currow += 1
 
-        # add the list widget after the clipping target
+        currow += 1
+        # add the list widget after the clipping target for callback reasons
         layout.addWidget(self.list_widget, currow, 0, 1, 2)
-        currow += 1
 
+        currow += 1
+        # add the checkbox to invert the clip
+        self.keep_inside_radiobutton = QRadioButton(parent=self)
+        self.keep_inside_radiobutton.setText('Keep Inside')
+        self.keep_inside_radiobutton.setChecked(True)
+        self.keep_outside_radiobutton = QRadioButton(parent=self)
+        self.keep_outside_radiobutton.setText('Keep Outside')
+        layout.addWidget(self.keep_inside_radiobutton, currow, 0)
+        layout.addWidget(self.keep_outside_radiobutton, currow, 1)
+        
+        currow += 1
         # add a button to finalize the clip
         self.apply_button = Standard.Button('Apply Clip')
         self.apply_button.setToolTip('Creates a copy of the target points that ' +
@@ -618,7 +632,6 @@ class CroppingDialog(Standard.AsyncDialog):
         else:
             for l, p in zip(self._labels, self._points):
                 l.xyz_point = p
-                
         self.write_to_spinboxes(self._points)
 
     def on_value_changed_wrapper(self, spinbox: Standard.DoubleSpinbox, row: int, col: int):
@@ -877,10 +890,11 @@ class SidePanel(QWidget):
                     bounding_box = dialog.bounding_box
                     name = unique_rename([m.name for m in self.side_panel.model_list], target.name, '_crop')
                     crop = O3DPointCloudModel(name, target.geometry.crop(bounding_box))
-                    # invert the crop if it has any points. In other words, delete the crop, keep the rest
                     if crop.geometry.has_points():
-                        idx, *_ = multidim_xor(np.asarray(target.geometry.points), np.asarray(crop.geometry.points))
-                        crop.geometry = target.geometry.select_by_index(idx)
+                        if dialog.keep_outside_radiobutton.isChecked():
+                            # invert the crop if it has any points. In other words, delete the crop, keep the rest
+                            idx, *_ = multidim_xor(np.asarray(target.geometry.points), np.asarray(crop.geometry.points))
+                            crop.geometry = target.geometry.select_by_index(idx)
                     # add the crop to the model list
                     self.side_panel.model_list.append(crop)
                     print('Crop completed')
@@ -971,36 +985,46 @@ class SidePanel(QWidget):
             self.setMinimumWidth(100)
             layout: QGridLayout = self.layout()
 
+            currow = 0
             # set up the header
             spacer = QSpacerItem(40, 0, QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
-            layout.addItem(spacer, 0, 0)
+            layout.addItem(spacer, currow, 0)
             labels = [Standard.Label(char, parent=self) for char in 'X,Y,Z'.split(',')]
             for i, l in enumerate(labels):
-                layout.addWidget(l, 0, i+1)
+                layout.addWidget(l, currow, i+1)
 
+            currow += 1
             # set up the position row
             label = Standard.Label('Pos', parent=self)
             label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(label, 1, 0)
+            layout.addWidget(label, currow, 0)
             self.pos_spinboxes = [Standard.DoubleSpinbox(parent=self) for i in range(3)]
             for i, (spinbox, axis) in enumerate(zip(self.pos_spinboxes, 'X,Y,Z'.split(','))):
-                spinbox.valueChanged.connect(self.on_coordinate_changed)
+                spinbox.valueChanged.connect(self.on_coordinate_changed_fast)
+                spinbox.editingFinished.connect(self.on_coordinate_changed_slow)
                 spinbox.setMaximum(100_000_000.0)
                 spinbox.setMinimum(-100_000_000.0)
                 spinbox.setToolTip(f'{axis} pos')
-                layout.addWidget(spinbox, 1, i+1)
+                layout.addWidget(spinbox, currow, i+1)
 
+            currow += 1
             # set up the rotation row
             label = Standard.Label('Rot', parent=self)
             label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(label, 2, 0)
+            layout.addWidget(label, currow, 0)
             self.rot_spinboxes = [Standard.DoubleSpinbox(parent=self) for i in range(3)]
             for i, (spinbox, axis) in enumerate(zip(self.rot_spinboxes, 'X, Y, Z'.split())):
-                spinbox.valueChanged.connect(self.on_coordinate_changed)
+                spinbox.valueChanged.connect(self.on_coordinate_changed_fast)
                 spinbox.setMaximum(100_000_000.0)
                 spinbox.setMinimum(-100_000_000.0)
                 spinbox.setToolTip(f'{axis} rot')
-                layout.addWidget(spinbox, 2, i+1)
+                layout.addWidget(spinbox, currow, i+1)
+
+            currow += 1
+            # set up the auto update checkbox
+            self.fast_updates_checkbox = QCheckBox(parent=self)
+            self.fast_updates_checkbox.setText('Fast Updates')
+            layout.addWidget(self.fast_updates_checkbox, currow, 3, 1, -4)
 
         def refresh_coordinates(self, model: O3DBaseModel = None):
             """If the model is not none, the coordinates
@@ -1014,15 +1038,21 @@ class SidePanel(QWidget):
                 [sb.setValue(0) for sb in self.pos_spinboxes]
                 [sb.setValue(0) for sb in self.rot_spinboxes]
 
-        def on_coordinate_changed(self):
+        def on_coordinate_changed_fast(self):
             """Writes the coordinate changes to the model, which are updated in the visualizer
             asyncronosly."""
-            if any([sb.hasFocus() for sb in (*self.pos_spinboxes, *self.rot_spinboxes)]):
+            if any([sb.hasFocus() for sb in (*self.pos_spinboxes, *self.rot_spinboxes)]) and self.fast_updates_checkbox.isChecked():
                 position_vector = np.array([sb.value() for sb in self.pos_spinboxes])
                 rotation_vector = np.array([np.deg2rad(sb.value()) for sb in self.rot_spinboxes])
-                if self.side_panel is not None:
-                    model = self.side_panel.selected_model
-                    model.geometry.cartisian_transform(position_vector, rotation_vector)
+                model = self.side_panel.selected_model
+                model.geometry.cartisian_transform(position_vector, rotation_vector)
+
+        def on_coordinate_changed_slow(self):
+            if not self.fast_updates_checkbox.isChecked():
+                position_vector = np.array([sb.value() for sb in self.pos_spinboxes])
+                rotation_vector = np.array([np.deg2rad(sb.value()) for sb in self.rot_spinboxes])
+                model = self.side_panel.selected_model
+                model.geometry.cartisian_transform(position_vector, rotation_vector)
 
 
     class Console(QPlainTextEdit):
