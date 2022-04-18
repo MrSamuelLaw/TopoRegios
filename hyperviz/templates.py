@@ -421,11 +421,15 @@ class ComparisonDialog(Standard.AsyncDialog):
         """modifes the colors in place using steps between blue and red"""
         if (self._deltas is not None) and (self._scan_cloud_new_colors is not None):
             self._scan_cloud_new_colors[:] = self._default_color
+            self._cmap_item.recompute(min_val, max_val)
             steps = np.linspace(min_val, max_val, steps+1)
+            # color everything within the bounds
             for s1, s0 in zip(steps[1:], steps):
-                c = self._cmap.get_color(np.mean([s1, s0]))
+                c = self._cmap.get_color(s0)
                 idx = np.where((self._deltas >= s0) & (self._deltas <= s1))
                 self._scan_cloud_new_colors[idx] = c
+            c = self._cmap.get_color(s1)
+            self._scan_cloud_new_colors[idx] = c
         self._scan_cloud.needs_update.true()
 
     def reset_colors(self, cloud):
