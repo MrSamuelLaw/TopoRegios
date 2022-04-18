@@ -77,6 +77,9 @@ class O3DBaseModel:
     def cartisian_coordinates(self):
         return self._cartisian_coordinates
 
+    def set_coordinates(self, coordinates):
+        self._cartisian_coordinates = coordinates
+
     def reset_coordinates(self):
         self._cartisian_coordinates = np.zeros((2, 3))
 
@@ -249,7 +252,7 @@ class O3DModelList(WatchableList):
         model.needs_update.true()
         super().append(model)
 
-    def get_model(self, name: str):
+    def get_model(self, name: str) -> Union[O3DBaseModel, None]:
         results = [m for m in self if m.name == name]
         return results[0] if results else None
 
