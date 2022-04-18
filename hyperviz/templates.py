@@ -901,6 +901,7 @@ class SidePanel(QWidget):
                     bounding_box = dialog.bounding_box
                     name = unique_rename([m.name for m in self.side_panel.model_list], target.name, '_crop')
                     crop = O3DPointCloudModel(name, target.geometry.crop(bounding_box))
+                    crop.cartisian_coordinates = np.copy(target.cartisian_coordinates)
                     if crop.geometry.has_points():
                         if dialog.keep_outside_radiobutton.isChecked():
                             # invert the crop if it has any points. In other words, delete the crop, keep the rest
