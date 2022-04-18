@@ -134,6 +134,7 @@ class BMPImportDialog(Standard.AsyncDialog):
         cur_row += 1
 
         import_button = Standard.Button('import')
+        import_button.setToolTip('Import the Point Cloud')
         import_button.clicked.connect(self.running.false)
         layout.addWidget(import_button, cur_row, 0, 1, ncols)
         cur_row += 1
@@ -152,7 +153,7 @@ class BMPImportDialog(Standard.AsyncDialog):
 
 class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
 
-    def __init__(self, model_list: List[O3DBaseModel], name=None, parent=None):
+    def __init__(self, model_list: O3DModelList, name=None, parent=None):
         super().__init__(parent=parent)
         self.setWindowTitle('STL -> Pointcloud')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -163,8 +164,8 @@ class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
         currow = 0
         # drop down to select the model
         label = Standard.Label(text='STL', parent=self)
-        label.setToolTip('Triangle Mesh to convert to a point cloud')
         self.target_drop_down = QComboBox(parent=self)
+        self.target_drop_down.setToolTip('Triangle Mesh to convert to a point cloud')
         self.target_drop_down.addItems([m.name for m in model_list if isinstance(m, O3DTriangleMeshModel)])
         if name is not None:
             self.target_drop_down.setCurrentText(name)
@@ -174,10 +175,10 @@ class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
 
         # drop or spinbox for npoints
         label = Standard.Label(text='n-points', parent=self)
-        label.setToolTip('Manually enter the number of points to create from the mesh ' + 
-                         'or select an existing point cloud use its point count')
         layout.addWidget(label, currow, 0, 2, 1)
         self.npoints_spinbox = Standard.IntSpinbox(parent=self)
+        self.npoints_spinbox.setToolTip('Manually enter the number of points to create from the mesh ' + 
+                                        'or select an existing point cloud use its point count')
         self.npoints_spinbox.setRange(0, 50E+6)
         layout.addWidget(self.npoints_spinbox, currow, 1)
         currow += 1
@@ -191,25 +192,21 @@ class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
 
         # button to submit the dialog
         self.apply_button = Standard.Button('Convert', parent=self)
+        self.apply_button.setToolTip('Create a new Point Cloud from the STL using n points')
         self.apply_button.clicked.connect(self.running.false)
         layout.addWidget(self.apply_button, currow, 0, 1, 2)
 
     @property
-    def target(self) -> O3DTriangleMeshModel:
+    def target(self) -> Union[O3DTriangleMeshModel, None]:
         name = self.target_drop_down.currentText()
-        return self.get_model_from_name(name)
+        return self.model_list.get_model(name)
 
     @property
     def npoints(self) -> int:
         return self.npoints_spinbox.value()
 
-    def get_model_from_name(self, name: str) -> Union[O3DBaseModel, None]:
-        models = [m for m in self.model_list if m.name == name]
-        if models:
-            return models[0]
-
     def get_points_from_model(self, name: str) -> int:
-        model = self.get_model_from_name(name)
+        model = self.model_list.get_model(name)
         if (model is not None) and model.geometry.has_points():
             npoints = len(model.geometry.points)
             self.npoints_spinbox.setValue(npoints)        
@@ -220,7 +217,7 @@ class OutlierRemovalDialog(Standard.AsyncDialog):
     preview_name = '__removal_preview__'
     algoithms = ['Radius Outlier Removal', 'Statistical Outlier Removal']
 
-    def __init__(self, target: O3DPointCloudModel, model_list: WatchableList, ):
+    def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList):
         super().__init__(parent=None)
         self.setWindowTitle('Outlier Removal')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -247,7 +244,9 @@ class OutlierRemovalDialog(Standard.AsyncDialog):
         currow += 1
         # set up the drop down for the algorithm
         label = Standard.Label('Algorithm', parent=self)
-        label.setToolTip(
+        layout.addWidget(label, currow, 0)
+        self.algorithm_dropdown = QComboBox(parent=self)
+        self.algorithm_dropdown.setToolTip(
             '\n'.join([
             'Radius Outlier Removal:', 
             '   Function to remove points that have less than n number of points in a given sphere of a given radius',
@@ -260,8 +259,6 @@ class OutlierRemovalDialog(Standard.AsyncDialog):
             '       n: number of neighbors around the target point',
             '       tolerance: standard deviation ratio'
         ]))
-        layout.addWidget(label, currow, 0)
-        self.algorithm_dropdown = QComboBox(parent=self)
         self.algorithm_dropdown.addItems(self.algoithms)
         layout.addWidget(self.algorithm_dropdown, currow, 1)
         
@@ -286,12 +283,14 @@ class OutlierRemovalDialog(Standard.AsyncDialog):
         currow += 1
         # set up the preview button
         self.preview_button = Standard.Button('Preview', parent=self)
+        self.preview_button.setToolTip('Shows a preview with the points to remove in purple and the points to keep in neon yellow')
         self.preview_button.clicked.connect(self.on_preview)
         layout.addWidget(self.preview_button, currow, 0, 1, 2)
 
         currow += 1
         # set up the apply button
         self.apply_button = Standard.Button('Apply', parent=self)
+        self.apply_button.setToolTip('Removes the points from the selected Point Cloud. This change is not reversable')
         self.apply_button.clicked.connect(self.on_apply)
         layout.addWidget(self.apply_button, currow, 0, 1, 2)
 
@@ -335,7 +334,7 @@ class OutlierRemovalDialog(Standard.AsyncDialog):
 
 class ComparisonDialog(Standard.AsyncDialog):
 
-    def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList[O3DPointCloudModel], parent=None):
+    def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList, parent=None):
         super().__init__(parent=parent)
         self.setWindowTitle('Measurement Dialog')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -365,6 +364,7 @@ class ComparisonDialog(Standard.AsyncDialog):
         label = Standard.Label('Scan', parent=self)
         layout.addWidget(label, currow, 0)
         self.scan_dropdown = QComboBox(parent=self)
+        self.scan_dropdown.setToolTip('Point Cloud that represents the scan/actual data')
         self.scan_dropdown.addItems([target.name])
         self.scan_dropdown.setCurrentText(target.name)
         layout.addWidget(self.scan_dropdown, currow, 1, 1, 2)
@@ -374,6 +374,7 @@ class ComparisonDialog(Standard.AsyncDialog):
         label = Standard.Label('Target', parent=self)
         layout.addWidget(label, currow, 0)
         self.target_dropdown = QComboBox(parent=self)
+        self.target_dropdown.setToolTip('Point Cloud that represents the CAD/desired data')
         layout.addWidget(self.target_dropdown, currow, 1, 1, 2)
 
         currow += 1
@@ -388,14 +389,16 @@ class ComparisonDialog(Standard.AsyncDialog):
         currow += 1
         # set up spinners
         self.min_spinbox = Standard.DoubleSpinbox(parent=self)
+        self.min_spinbox.setToolTip('Minimum deviation to paint')
         self.min_spinbox.setSingleStep(0.10)
         layout.addWidget(self.min_spinbox, currow, 0)
         self.steps_spinbox = Standard.IntSpinbox(parent=self)
+        self.steps_spinbox.setToolTip('Number of steps to segment the colors into')
         layout.addWidget(self.steps_spinbox, currow, 1)
         self.max_spinbox = Standard.DoubleSpinbox(parent=self)
+        self.max_spinbox.setToolTip('Maximum deviation to paint')
         self.max_spinbox.setSingleStep(0.10)
         layout.addWidget(self.max_spinbox, currow, 2)
-
 
         # assignt the values to the combobox
         self.target_dropdown.currentTextChanged.connect(self.on_dropdown_changed)
@@ -443,7 +446,6 @@ class ComparisonDialog(Standard.AsyncDialog):
         self.steps_spinbox.setValue(self._default_steps)
         self.max_spinbox.setValue(self._deltas.max())
 
-    
     def on_value_changed(self, *args):
         if any([sb.hasFocus() for sb in (self.min_spinbox, self.steps_spinbox, self.max_spinbox)]):
             # grab the data
@@ -460,7 +462,7 @@ class ComparisonDialog(Standard.AsyncDialog):
 
 class RegistrationDialog(Standard.AsyncDialog):
 
-    def __init__(self, target: O3DPointCloudModel, model_list: List[O3DPointCloudModel], parent=None):
+    def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList, parent=None):
         super().__init__(parent=parent)
         self.setWindowTitle('Registration Dialog')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -475,6 +477,7 @@ class RegistrationDialog(Standard.AsyncDialog):
         label = Standard.Label('Target', parent=self)
         layout.addWidget(label, currow, 0)
         self.target_dropdown = QComboBox(parent=self)
+        self.target_dropdown.setToolTip('Point Cloud that represents the CAD/desired data')
         self.target_dropdown.addItems([m.name for m in self._model_list if isinstance(m, O3DPointCloudModel)])
         self.target_dropdown.setCurrentText(self._target.name)
         layout.addWidget(self.target_dropdown, currow, 1)
@@ -484,6 +487,7 @@ class RegistrationDialog(Standard.AsyncDialog):
         label = Standard.Label('Scan', parent=self)
         layout.addWidget(label, currow, 0)
         self.scan_dropdown = QComboBox(parent=self)
+        self.scan_dropdown.setToolTip('Point Cloud that represents the scan/actual data')
         self.scan_dropdown.addItems([m.name for m in self._model_list if isinstance(m, O3DPointCloudModel)])
         layout.addWidget(self.scan_dropdown, currow, 1)
 
@@ -492,11 +496,14 @@ class RegistrationDialog(Standard.AsyncDialog):
         label = Standard.Label('max distance', parent=self)
         layout.addWidget(label, currow, 0)
         self._max_distance_spinbox = Standard.DoubleSpinbox(parent=self)
+        self._max_distance_spinbox.setToolTip('The maximum distance that any one point in the scan ' + 
+                                              'cloud may be seperated from any one point in the target cloud.')
         self._max_distance_spinbox.setValue(0.1)
         layout.addWidget(self._max_distance_spinbox)
 
         currow += 1
         self.apply_button = Standard.Button('Apply', parent=self)
+        self.apply_button.setToolTip('Align the scan cloud to the target cloud')
         self.apply_button.clicked.connect(self.on_apply)
         layout.addWidget(self.apply_button, currow, 0, 1, 2)
 
@@ -527,11 +534,11 @@ class RegistrationDialog(Standard.AsyncDialog):
 
 class CroppingDialog(Standard.AsyncDialog):
 
-    model_name = '__clipping_volumn__'
+    model_name = '__cropping_volumn__'
 
-    def __init__(self, target: O3DPointCloudModel, model_list: List[O3DPointCloudModel], text_list: List[O3DTextModel], parent=None):
+    def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList, text_list: WatchableList[O3DTextModel], parent=None):
         super().__init__(parent=parent)
-        self.setWindowTitle('Clipping Dialog')
+        self.setWindowTitle('Crpping Dialog')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
 
         self.bounding_box = None
@@ -546,16 +553,17 @@ class CroppingDialog(Standard.AsyncDialog):
 
         # list widget to change values
         self.list_widget = CroppingDialog.ListWidget(parent=self)
+        self.list_widget.setToolTip('Use ctrl+click to select multiple points to move at once')
         for i, row in enumerate(self.list_widget.spinboxes):
             for j, sb in enumerate(row):                    
                 sb.valueChanged.connect(self.on_value_changed_wrapper(sb, i, j))
 
         currow = 0
         # dropdown to select a clipping target
-        label = Standard.Label('Clip Target')
-        label.setToolTip('Model to clip using clipping volume')
+        label = Standard.Label('Crop Target')
         layout.addWidget(label, currow, 0)
         self.dropdown = QComboBox(parent=self)
+        self.dropdown.setToolTip('Model to clip using cropping volume')
         self.dropdown.currentTextChanged.connect(self.on_target_changed)
         self.dropdown.addItems([m.name for m in model_list if isinstance(m, O3DPointCloudModel)])
         self.dropdown.setCurrentText(target.name)
@@ -568,9 +576,11 @@ class CroppingDialog(Standard.AsyncDialog):
         currow += 1
         # add the checkbox to invert the clip
         self.keep_inside_radiobutton = QRadioButton(parent=self)
-        self.keep_inside_radiobutton.setText('Keep Inside')
+        self.keep_inside_radiobutton.setToolTip('Removes the points outside of the cropping volume')
+        self.keep_inside_radiobutton.setText('Keep Inside')    
         self.keep_inside_radiobutton.setChecked(True)
         self.keep_outside_radiobutton = QRadioButton(parent=self)
+        self.keep_outside_radiobutton.setToolTip('Removes the points inside of the cropping volume')
         self.keep_outside_radiobutton.setText('Keep Outside')
         layout.addWidget(self.keep_inside_radiobutton, currow, 0)
         layout.addWidget(self.keep_outside_radiobutton, currow, 1)
@@ -579,7 +589,7 @@ class CroppingDialog(Standard.AsyncDialog):
         # add a button to finalize the clip
         self.apply_button = Standard.Button('Apply Clip')
         self.apply_button.setToolTip('Creates a copy of the target points that ' +
-                                     'lie within the clipping volume')
+                                     'lie within the cropping volume')
         self.apply_button.clicked.connect(self.running.false)
         layout.addWidget(self.apply_button, currow, 0, 1, 2)
 
@@ -588,7 +598,7 @@ class CroppingDialog(Standard.AsyncDialog):
         return self._target 
     
     def on_target_changed(self, name: str):
-        self._target = self.get_model_from_name(name)
+        self._target = self._model_list.get_model(name)
         # compute the dimensions of the box 
         oriented_bounding_box = self._target.geometry.get_oriented_bounding_box()
         max_bound: np.array = oriented_bounding_box.get_max_bound()
@@ -610,7 +620,7 @@ class CroppingDialog(Standard.AsyncDialog):
         box = o3d_geometry.TriangleMesh.create_box(*dimensions)
 
         # create the bounding box if it does not exist
-        model = self.get_model_from_name(self.model_name)
+        model = self._model_list.get_model(self.model_name)
         if model is not None:
             model.reset_coordinates()
             model.geometry = box
@@ -648,7 +658,7 @@ class CroppingDialog(Standard.AsyncDialog):
                 sb_row[col].setValue(value)
                 self._points[i, col] = value
             # update the model and query the bounding box
-            model = self.get_model_from_name(self.model_name)
+            model = self._model_list.get_model(self.model_name)
             model.needs_update.true()
             self.bounding_box = model.geometry.get_oriented_bounding_box()
             [t.needs_update.true() for t in self._text_list]
@@ -656,15 +666,10 @@ class CroppingDialog(Standard.AsyncDialog):
     def write_to_spinboxes(self, array: np.array):
         for i, row in enumerate(self.list_widget.spinboxes):
             [sb.setValue(v) for sb, v in zip(row, self._points[i])]
-             
-    def get_model_from_name(self, name: str) -> Union[O3DPointCloudModel, None]:
-        models = [m for m in self._model_list if m.name == name]
-        if models:
-            return models[0]
 
     def teardown(self):
         [label.delete_later() for label in self._labels]
-        model = self.get_model_from_name(self.model_name)
+        model = self._model_list.get_model(self.model_name)
         if model is not None:
             model.delete_later()
 
@@ -715,14 +720,14 @@ class CroppingDialog(Standard.AsyncDialog):
 
 class SidePanel(QWidget):
     
-    def __init__(self, model_list_ref: WatchableList, text_list_ref: WatchableList):
+    def __init__(self, model_list: O3DModelList, text_list_ref: WatchableList):
         """
         window is of type O3DVisualizer
         """
         super().__init__(parent=None)
         self.setWindowFlag(Qt.WindowCloseButtonHint, False)
         self.setWindowTitle('SidePanel')
-        self.model_list = model_list_ref
+        self.model_list = model_list
         self.text_list = text_list_ref
 
         # create the layout
@@ -733,6 +738,7 @@ class SidePanel(QWidget):
 
         # set up the listview widget
         self.listview = SidePanel.ListWidget(parent=self)
+        self.listview.setToolTip('Right click on items for more options')
         self.listview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.refresh_list_view(self.model_list)
         self.model_list.subscribe(self.refresh_list_view)
@@ -740,6 +746,7 @@ class SidePanel(QWidget):
 
         # set up the rotate/translate widget
         self.pos_rot_widget = SidePanel.PositionRotationWidget(parent=self)
+        self.pos_rot_widget.setToolTip('Moves the selected model. Has no effect on locked models')
         self.pos_rot_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.listview.currentItemChanged.connect(self.on_current_item_changed)
         layout.addWidget(self.pos_rot_widget, 1, 0)
