@@ -848,8 +848,12 @@ class SidePanel(QWidget):
                 # copy coordinates as an array to the global clipboard
                 clipboard = QClipboard()
                 mimedata = QMimeData()
+                # load in the cartisian coordinates
                 data = self.model.cartisian_coordinates.tobytes()
                 mimedata.setData('nparray', data)
+                # load in the transform matrix
+                data = self.model.transformation_dot_product.tobytes()
+                mimedata.setData('npmatrix', data)
                 clipboard.setMimeData(mimedata, QClipboard.Clipboard)
 
             def on_paste_coordinates(self):
@@ -858,7 +862,19 @@ class SidePanel(QWidget):
                 data = clipboard.mimeData().data('nparray')
                 array = np.frombuffer(data)
                 array = array.reshape(2, 3)
-                self.model.geometry.cartisian_transform(array[0], array[1])
+                # retrieve the matrix from the global clipboard
+                data = clipboard.mimeData().data('npmatrix')
+                matrix = np.frombuffer(data)
+                matrix = matrix.reshape(4, 4)
+                # transform back to the origin
+                to_origin = np.linalg.inv(self.model.transformation_dot_product)
+                self.model.geometry.transform(to_origin)
+                self.model.geometry.transform(matrix)
+                # tell the model where it's now at
+                self.model.set_transformation_dot_product(matrix)
+                self.model.set_coordinates(array)
+                self.model.needs_update.true()
+                # self.model.geometry.cartisian_transform(array[0], array[1])
                 if self.side_panel is not None:
                     self.side_panel.refresh_pos_rot_widget(self.model)    
             
@@ -1027,6 +1043,7 @@ class SidePanel(QWidget):
             self.rot_spinboxes = [Standard.DoubleSpinbox(parent=self) for i in range(3)]
             for i, (spinbox, axis) in enumerate(zip(self.rot_spinboxes, 'X, Y, Z'.split())):
                 spinbox.valueChanged.connect(self.on_coordinate_changed_fast)
+                spinbox.editingFinished.connect(self.on_coordinate_changed_slow)
                 spinbox.setMaximum(100_000_000.0)
                 spinbox.setMinimum(-100_000_000.0)
                 spinbox.setToolTip(f'{axis} rot')

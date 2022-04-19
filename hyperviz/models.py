@@ -48,7 +48,8 @@ class O3DBaseModel:
         self.group = group
         self.transparent = transparent
         self.visible = visible
-        self._cartisian_coordinates = np.zeros((2, 3))  # [0] = Px, Py, Pz, [1] = Rx, Ry, Rz in radians
+        self._transformation_dot_product = np.eye(4, 4, dtype=np.float64)
+        self._cartisian_coordinates = np.zeros((2, 3), dtype=np.float64)  # [0] = Px, Py, Pz, [1] = Rx, Ry, Rz in radians
 
         # validate name before assigning to read only property name
         if not isinstance(name, (str,)):
@@ -67,6 +68,7 @@ class O3DBaseModel:
             relative_transform_matrix = np.eye(4, 4)
             relative_transform_matrix[:-1, -1] = relative_translation
             relative_transform_matrix[:-1, :-1] = o3d_geometry.get_rotation_matrix_from_xyz(relative_rotation)
+            self._transformation_dot_product = np.dot(relative_transform_matrix, self.transformation_dot_product)
             self.geometry.transform(relative_transform_matrix)
             # update the model
             self._cartisian_coordinates[0] = position_vector
@@ -82,6 +84,13 @@ class O3DBaseModel:
 
     def reset_coordinates(self):
         self._cartisian_coordinates = np.zeros((2, 3))
+
+    @property
+    def transformation_dot_product(self):
+        return self._transformation_dot_product
+
+    def set_transformation_dot_product(self, transform_matrix):
+        self._transformation_dot_product = transform_matrix
 
     def asO3Ddict(self):
         """Returns a dictionary compatible with the O3DVisualizer's add_geometry method"""
