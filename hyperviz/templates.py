@@ -868,8 +868,8 @@ class SidePanel(QWidget):
                 matrix = matrix.reshape(4, 4)
                 # transform back to the origin
                 to_origin = np.linalg.inv(self.model.transformation_dot_product)
-                self.model.geometry.transform(to_origin)
-                self.model.geometry.transform(matrix)
+                transformation = np.dot(matrix, to_origin)
+                self.model.geometry.transform(transformation)
                 # tell the model where it's now at
                 self.model.set_transformation_dot_product(matrix)
                 self.model.set_coordinates(array)
