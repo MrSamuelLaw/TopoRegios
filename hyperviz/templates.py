@@ -542,7 +542,7 @@ class CroppingDialog(Standard.AsyncDialog):
 
     def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList, text_list: WatchableList[O3DTextModel], parent=None):
         super().__init__(parent=parent)
-        self.setWindowTitle('Crpping Dialog')
+        self.setWindowTitle('Cropping Dialog')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
 
         self.bounding_box = None
@@ -591,7 +591,7 @@ class CroppingDialog(Standard.AsyncDialog):
         
         currow += 1
         # add a button to finalize the clip
-        self.apply_button = Standard.Button('Apply Clip')
+        self.apply_button = Standard.Button('Apply Crop')
         self.apply_button.setToolTip('Creates a copy of the target points that ' +
                                      'lie within the cropping volume')
         self.apply_button.clicked.connect(self.running.false)
@@ -871,8 +871,9 @@ class SidePanel(QWidget):
                 transformation = np.dot(matrix, to_origin)
                 self.model.geometry.transform(transformation)
                 # tell the model where it's now at
-                self.model.set_transformation_dot_product(matrix)
+                self.model.set_transformation_matrix(matrix)
                 self.model.set_coordinates(array)
+                self.model.copy_position()
                 self.model.needs_update.true()
                 # self.model.geometry.cartisian_transform(array[0], array[1])
                 if self.side_panel is not None:
@@ -918,6 +919,7 @@ class SidePanel(QWidget):
                     name = unique_rename([m.name for m in self.side_panel.model_list], target.name, '_crop')
                     crop = O3DPointCloudModel(name, target.geometry.crop(bounding_box))
                     crop.set_coordinates(np.copy(target.cartisian_coordinates))
+                    crop.set_transformation_matrix(np.copy(target.transformation_dot_product))
                     if crop.geometry.has_points():
                         if dialog.keep_outside_radiobutton.isChecked():
                             # invert the crop if it has any points. In other words, delete the crop, keep the rest
