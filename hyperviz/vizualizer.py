@@ -9,7 +9,7 @@ from open3d import visualization as o3d_vis
 from open3d.visualization.gui import Application as o3d_app
 from hyperviz import LJ_X8000
 from hyperviz.models import O3DBaseModel, O3DTriangleMeshModel, O3DPointCloudModel, O3DTextModel, O3DModelList
-from hyperviz.utilities import BoolTrigger, WatchableList, R_TRIG, unique_rename
+from hyperviz.utilities import BoolTrigger, WatchableList, R_TRIG, unique_rename, aprint
 from hyperviz.templates import BMPImportDialog, SidePanel
 
 
@@ -138,14 +138,13 @@ class Vizualizer():
     async def import_stl(self):
         file_dialog = QFileDialog(caption='import stl')
         if file_dialog.exec():
-            print('Importing stl')
-            await asyncio.sleep(1E-9)
+            await aprint('Importing STL')
             path = Path(file_dialog.selectedFiles()[0]).resolve()
             stl = o3d_io.read_triangle_mesh(str(path))
             name = unique_rename([m.name for m in self.model_list], path.name, '_copy')
             stl = O3DTriangleMeshModel(name, trianglemesh=stl)
             self.model_list.append(stl)
-            print('STL import complete')
+            await aprint('STL import complete')
 
     def on_import_bmp(self, O3DVisualizer):
         asyncio.create_task(self.import_bmp())
@@ -157,19 +156,19 @@ class Vizualizer():
             path = Path(file_dialog.selectedFiles()[0]).resolve()
             dialog = BMPImportDialog()
             if await dialog.run():
-                print('Importing bmp as point cloud')
-                await asyncio.sleep(1E-9)
+                await aprint('Importing bmp as point cloud')
                 offset, npoints = dialog.offset, dialog.npoints
                 point_cloud = LJ_X8000.bmp_to_point_cloud(path, offset)
                 if npoints and (np.asarray(point_cloud.points).shape[0] > npoints):
+                    await aprint('downsampling')
                     ratio = npoints/np.asarray(point_cloud.points).shape[0]
                     point_cloud = point_cloud.random_down_sample(ratio)
                 name = unique_rename([m.name for m in self.model_list], path.name, '_copy')
                 point_cloud = O3DPointCloudModel(name, pointcloud=point_cloud)
                 self.model_list.append(point_cloud)
-                print('Import complete')
+                await aprint('BMP Import complete')
             else:
-                print('Import cancled')
+                await aprint('BPM Import cancled')
 
 
 

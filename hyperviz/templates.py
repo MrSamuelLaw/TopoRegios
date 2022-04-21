@@ -7,8 +7,9 @@ import numpy as np
 from open3d import pipelines as o3d_pipelines
 from open3d import utility as o3d_utils
 from open3d import geometry as o3d_geometry
+from hyperviz import LJ_X8000
 from hyperviz.models import O3DBaseModel, O3DTriangleMeshModel, O3DPointCloudModel, O3DTextModel, O3DModelList
-from hyperviz.utilities import BoolTrigger, WatchableList, multidim_xor, unique_rename
+from hyperviz.utilities import BoolTrigger, WatchableList, multidim_xor, unique_rename, aprint
 from hyperviz.linear_color_mapper import LinearColorMapper, LinearColorMapperItem
 from PySide6.QtCore import Qt, QMimeData
 from PySide6.QtGui import QClipboard
@@ -107,7 +108,7 @@ class BMPImportDialog(Standard.AsyncDialog):
         self.setWindowTitle('Import BMP')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.resize(200, 100)
-        
+
         layout = QGridLayout(parent=self)
         nrows, ncols = 3, 2
         cur_row = 0
@@ -209,7 +210,23 @@ class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
         model = self.model_list.get_model(name)
         if (model is not None) and model.geometry.has_points():
             npoints = len(model.geometry.points)
-            self.npoints_spinbox.setValue(npoints)        
+            self.npoints_spinbox.setValue(npoints)
+
+    async def run(self):
+        await aprint('Awaiting user input')
+        completed = await super().run()
+        if completed:
+            await aprint('Converting STL -> PCD')
+            target = self.target
+            npoints = self.npoints
+            point_cloud = target.geometry.sample_points_uniformly(npoints)
+            name = unique_rename([m.name for m in self.model_list], target.name + '_pcd', '_pcd')
+            point_cloud = O3DPointCloudModel(name, point_cloud)
+            self.model_list.append(point_cloud)
+            await aprint('STL -> PCD conversion complete')
+        else:
+            await aprint('STL to pointcloud conversion canceled')
+        return completed       
 
 
 class OutlierRemovalDialog(Standard.AsyncDialog):
@@ -419,6 +436,7 @@ class ComparisonDialog(Standard.AsyncDialog):
 
     def compute_colors(self, min_val, max_val, steps):
         """modifes the colors in place using steps between blue and red"""
+        print('Computing color map')
         if (self._deltas is not None) and (self._scan_cloud_new_colors is not None):
             self._scan_cloud_new_colors[:] = self._default_color
             self._cmap_item.recompute(min_val, max_val)
@@ -477,23 +495,24 @@ class RegistrationDialog(Standard.AsyncDialog):
         self.setLayout(layout)
 
         currow = 0
-        # dropdown to select target
-        label = Standard.Label('Target', parent=self)
-        layout.addWidget(label, currow, 0)
-        self.target_dropdown = QComboBox(parent=self)
-        self.target_dropdown.setToolTip('Point Cloud that represents the CAD/desired data')
-        self.target_dropdown.addItems([m.name for m in self._model_list if isinstance(m, O3DPointCloudModel)])
-        self.target_dropdown.setCurrentText(self._target.name)
-        layout.addWidget(self.target_dropdown, currow, 1)
-
-        currow += 1
         # drop down to select scan
         label = Standard.Label('Scan', parent=self)
         layout.addWidget(label, currow, 0)
         self.scan_dropdown = QComboBox(parent=self)
         self.scan_dropdown.setToolTip('Point Cloud that represents the scan/actual data')
         self.scan_dropdown.addItems([m.name for m in self._model_list if isinstance(m, O3DPointCloudModel)])
+        self.scan_dropdown.setCurrentText(self._target.name)
         layout.addWidget(self.scan_dropdown, currow, 1)
+
+        currow += 1
+        # dropdown to select target
+        label = Standard.Label('Target', parent=self)
+        layout.addWidget(label, currow, 0)
+        self.target_dropdown = QComboBox(parent=self)
+        self.target_dropdown.setToolTip('Point Cloud that represents the CAD/desired data')
+        self.target_dropdown.addItems([m.name for m in self._model_list if isinstance(m, O3DPointCloudModel)])
+        # self.target_dropdown.setCurrentText(self._target.name)
+        layout.addWidget(self.target_dropdown, currow, 1)
 
         currow += 1
         # spinbox for convergence threshold
@@ -515,7 +534,7 @@ class RegistrationDialog(Standard.AsyncDialog):
         asyncio.create_task(self.apply())
 
     async def apply(self):
-        print('Starting registration')
+        await aprint('Starting registration')
         await asyncio.sleep(1E-9)
         target: O3DPointCloudModel = self._model_list.get_model(self.target_dropdown.currentText())
         scan: O3DPointCloudModel = self._model_list.get_model(self.scan_dropdown.currentText())
@@ -525,6 +544,9 @@ class RegistrationDialog(Standard.AsyncDialog):
                 scan.geometry._geometry, target.geometry._geometry, threshold, transform_init,
                 o3d_pipelines.registration.TransformationEstimationPointToPlane()
             )
+        await aprint(f'Correspondece = {point_to_plane_registration.correspondence_set}: correspondences between source and target.')
+        await aprint(f'Fitness = {point_to_plane_registration.fitness}: The overlapping area (# of inlier correspondeces/# of points in source). Higher is better.')
+        await aprint(f'RMSE = {point_to_plane_registration.inlier_rmse}: RMSE of all inlier correspondences. Lower is better.')
         matrix = point_to_plane_registration.transformation
         rx = np.arctan2(matrix[2, 1], matrix[2, 2])
         ry = np.arctan2(matrix[2, 0], np.sqrt(matrix[2, 1]**2 + matrix[2, 2]**2))
@@ -532,8 +554,10 @@ class RegistrationDialog(Standard.AsyncDialog):
         dx, dy, dz = matrix[:-1, -1]
         pos = scan.cartisian_coordinates[0] + np.array([dx, dy, dz])
         rot = scan.cartisian_coordinates[1] + np.array([rx, ry, rz])
+        await aprint(f'Translation = {pos}: x, y, z, translations used to align scan to target.')
+        await aprint(f'Rotation = {rot}: x, y, z, euler angles used to align scan to target.')
         scan.geometry.cartisian_transform(pos, rot)
-        print('Registration Complete')
+        await aprint('Registration Complete')
     
 
 class CroppingDialog(Standard.AsyncDialog):
@@ -626,7 +650,7 @@ class CroppingDialog(Standard.AsyncDialog):
         # create the bounding box if it does not exist
         model = self._model_list.get_model(self.model_name)
         if model is not None:
-            model.reset_coordinates()
+            model.reset_positional_data()
             model.geometry = box
         else:
             model = O3DTriangleMeshModel(self.model_name, box)
@@ -684,6 +708,23 @@ class CroppingDialog(Standard.AsyncDialog):
     async def run(self):
         completed = await super().run()
         self.teardown()
+        if completed:
+            await aprint('Beginning Crop')
+            # apply the crop
+            target = self.target
+            bounding_box = self.bounding_box
+            name = unique_rename([m.name for m in self._model_list], target.name, '_crop')
+            crop = O3DPointCloudModel(name, target.geometry.crop(bounding_box))
+            crop.set_positional_data((np.copy(target.cartisian_coordinates), np.copy(target.transformation_matrix)))
+            if crop.geometry.has_points() and self.keep_outside_radiobutton.isChecked():
+                    # invert the crop if it has any points. In other words, delete the crop, keep the rest
+                    idx, *_ = multidim_xor(np.asarray(target.geometry.points), np.asarray(crop.geometry.points))
+                    crop.geometry = target.geometry.select_by_index(idx)
+            # add the crop to the model list
+            self._model_list.append(crop)
+            await aprint('Crop completed')
+        else:
+            await aprint('Crop cancled')
         return completed
 
 
@@ -848,88 +889,52 @@ class SidePanel(QWidget):
                 # copy coordinates as an array to the global clipboard
                 clipboard = QClipboard()
                 mimedata = QMimeData()
-                # load in the cartisian coordinates
-                data = self.model.cartisian_coordinates.tobytes()
+                # load in the positional data
+                cartisian_coordinates, transformation_matrix = self.model.get_positional_data()
+                data = cartisian_coordinates.tobytes()
                 mimedata.setData('nparray', data)
                 # load in the transform matrix
-                data = self.model.transformation_dot_product.tobytes()
+                data = transformation_matrix.tobytes()
                 mimedata.setData('npmatrix', data)
                 clipboard.setMimeData(mimedata, QClipboard.Clipboard)
+                print('Copied positional data to clipboard')
 
             def on_paste_coordinates(self):
                 # retrieve coordinates from global clipboard
                 clipboard = QClipboard()
                 data = clipboard.mimeData().data('nparray')
-                array = np.frombuffer(data)
-                array = array.reshape(2, 3)
+                cartisian_coordinates = np.frombuffer(data)
+                cartisian_coordinates = cartisian_coordinates.reshape(2, 3)
                 # retrieve the matrix from the global clipboard
                 data = clipboard.mimeData().data('npmatrix')
-                matrix = np.frombuffer(data)
-                matrix = matrix.reshape(4, 4)
+                transformation_matrix = np.frombuffer(data)
+                transformation_matrix = transformation_matrix.reshape(4, 4)
                 # transform back to the origin
-                to_origin = np.linalg.inv(self.model.transformation_dot_product)
-                transformation = np.dot(matrix, to_origin)
+                to_origin = np.linalg.inv(self.model.transformation_matrix)
+                transformation = np.dot(transformation_matrix, to_origin)
                 self.model.geometry.transform(transformation)
                 # tell the model where it's now at
-                self.model.set_transformation_matrix(matrix)
-                self.model.set_coordinates(array)
-                self.model.copy_position()
+                self.model.set_positional_data((cartisian_coordinates, transformation_matrix))
                 self.model.needs_update.true()
-                # self.model.geometry.cartisian_transform(array[0], array[1])
                 if self.side_panel is not None:
-                    self.side_panel.refresh_pos_rot_widget(self.model)    
+                    self.side_panel.refresh_pos_rot_widget(self.model)
+                print('Pasted positional data from the clipboard')   
             
             def on_triangle_mesh_to_pointcloud(self):
                 asyncio.create_task(self.triangle_mesh_to_pointcloud())
 
             async def triangle_mesh_to_pointcloud(self):
                 dialog = TriangleMeshToPointCloudDialog(self.side_panel.model_list)
-                print('Awaiting user input')
-                if await dialog.run():
-                    print('Converting STL -> PCD')
-                    await asyncio.sleep(1E-9)
-                    target = dialog.target
-                    npoints = dialog.npoints
-                    point_cloud = target.geometry.sample_points_uniformly(npoints)
-                    name = target.name + '_pcd'
-                    point_cloud = O3DPointCloudModel(name, point_cloud)
-                    flag = True
-                    while flag:
-                        try:
-                            self.side_panel.model_list.append(point_cloud)
-                            flag = False
-                        except ValueError:
-                            point_cloud._name = point_cloud.name + '_pcd'
-                    print('STL -> PCD conversion complete')
-                else:
-                    print('STL to pointcloud conversion canceled')
+                await aprint('Opening STL -> Pointcloud Dialog')
+                await dialog.run()
 
             def on_crop_pointcloud(self):
                 asyncio.create_task(self.crop_pointcloud())
 
             async def crop_pointcloud(self):
                 dialog = CroppingDialog(self.model, self.side_panel.model_list, self.side_panel.text_list)
-                print('Opening crop dialog')
-                if await dialog.run():
-                    print('Beginning crop')
-                    await asyncio.sleep(1E-9)
-                    # apply the crop
-                    target = dialog.target
-                    bounding_box = dialog.bounding_box
-                    name = unique_rename([m.name for m in self.side_panel.model_list], target.name, '_crop')
-                    crop = O3DPointCloudModel(name, target.geometry.crop(bounding_box))
-                    crop.set_coordinates(np.copy(target.cartisian_coordinates))
-                    crop.set_transformation_matrix(np.copy(target.transformation_dot_product))
-                    if crop.geometry.has_points():
-                        if dialog.keep_outside_radiobutton.isChecked():
-                            # invert the crop if it has any points. In other words, delete the crop, keep the rest
-                            idx, *_ = multidim_xor(np.asarray(target.geometry.points), np.asarray(crop.geometry.points))
-                            crop.geometry = target.geometry.select_by_index(idx)
-                    # add the crop to the model list
-                    self.side_panel.model_list.append(crop)
-                    print('Crop completed')
-                else:
-                    print('Crop cancled')
+                await aprint('Opening Cropping Dialog')
+                await dialog.run()
 
             def on_remove_outliers(self):
                 asyncio.create_task(self.remove_outliers())
