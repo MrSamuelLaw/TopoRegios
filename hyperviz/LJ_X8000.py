@@ -1,9 +1,11 @@
-from numba import njit, prange
+from numba import jit, njit, prange
 import numpy as np
 import open3d as o3d
 from PIL import Image
 from pathlib import Path
 from typing import Union
+from time import time as now
+from asyncio import create_task
 
 """
 AUTHOR: Samuel Law
@@ -22,11 +24,27 @@ DYDX = 1     # mm
 def bmp_to_point_cloud(path: Union[Path, str], extra_offset=0.0) -> o3d.geometry.PointCloud:
     """Takes a bmp file path and converts
     it to an open3d point cloud."""
+    t1 = now()
     data = np.array(Image.open(str(path)))
+    t2 = now()
     data = bmp_data_to_height_map(data)
+    t3 = now()
     data = height_map_to_np_array(data, extra_offset=extra_offset)
+    t4 = now()
     point_cloud = np_array_to_point_cloud(data)
-    return point_cloud
+    t5 = now()
+    estimate_normals(point_cloud)
+    t6 = now()
+    lines = [
+        f'read duration: {t2 - t1:.5f} sec',
+        f'height map computation duration: {t3 - t2:.5f} sec',
+        f'height map -> numpy 3D point array duration: {t4 - t3:.5f} sec',
+        f'numpy 3D point array -> O3DPointCloud duration: {t5 - t4:.5f} sec',
+        f'O3DPointCloud Estimate Normals Duraiton: {t6 - t5}: sec',
+        f'total time = {t6 - t1:.5f}: sec'
+    ]
+    text = '\n'.join(lines)
+    return point_cloud, text
 
 
 def bmp_to_np_array(path: Union[Path, str], extra_offset=0.0) -> np.array:
@@ -34,18 +52,6 @@ def bmp_to_np_array(path: Union[Path, str], extra_offset=0.0) -> np.array:
     data = bmp_data_to_height_map(data)
     data = height_map_to_np_array(data, extra_offset=extra_offset)
     return data
-
-
-def point_cloud_to_ply(path, point_cloud):
-    path = Path(path)
-    name = path.name
-    index = name.rfind('.')
-    if index > -1:
-        name = name[:index] + '.ply'
-    else:
-        name = name + '.ply'
-    path = path.parent.joinpath(name)
-    o3d.io.write_point_cloud(str(path), point_cloud)
 
 
 @njit()
@@ -80,12 +86,16 @@ def height_map_to_np_array(height_data: np.array, extra_offset=0.0) -> o3d.geome
     #convert x, y, h data to rows in an array
     points = np.column_stack((rows*DX, cols*(DX*DYDX), height_data[rows, cols]))
     return points
-    
+
 
 def np_array_to_point_cloud(np_array: np.array) -> o3d.geometry.PointCloud:
     # convert to point cloud object
     point_cloud = o3d.geometry.PointCloud()
     point_cloud.points = o3d.utility.Vector3dVector(np_array)
-    point_cloud.estimate_normals()
     return point_cloud
 
+
+# this function is the slowest function in the point cloud conversion process
+# if this function can be sped up, loading in point clouds will feel nearly instantanious
+def estimate_normals(pointcloud) -> o3d.geometry.PointCloud:
+    pointcloud.estimate_normals()
