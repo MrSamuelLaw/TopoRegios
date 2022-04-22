@@ -158,7 +158,8 @@ class Vizualizer():
             if await dialog.run():
                 await aprint('Importing bmp as point cloud')
                 offset, npoints = dialog.offset, dialog.npoints
-                point_cloud = LJ_X8000.bmp_to_point_cloud(path, offset)
+                point_cloud, text = LJ_X8000.bmp_to_point_cloud(path, offset)
+                await aprint(text)
                 if npoints and (np.asarray(point_cloud.points).shape[0] > npoints):
                     await aprint('downsampling')
                     ratio = npoints/np.asarray(point_cloud.points).shape[0]

@@ -1,3 +1,4 @@
+import asyncio
 import numpy as np
 from typing import List, Callable
 from collections import deque
@@ -93,6 +94,11 @@ class Counter:
     def __call__(self):
         self._count += 1
         return self._count
+
+
+async def aprint(message):
+    print(message)
+    await asyncio.sleep(1E-9)
 
 
 def multidim_xor(arr1, arr2) -> List[int]:
