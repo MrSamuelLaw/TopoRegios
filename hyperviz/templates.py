@@ -426,7 +426,7 @@ class ComparisonDialog(Standard.AsyncDialog):
         self.steps_spinbox.valueChanged.connect(self.on_value_changed)
 
     def compute_deltas(self, scan_cloud: O3DPointCloudModel, target_cloud: O3DPointCloudModel):
-        unsigned_deltas = scan_cloud.geometry.compute_point_cloud_distance(target_cloud.geometry)
+        unsigned_deltas = scan_cloud.geometry._geometry.compute_point_cloud_distance(target_cloud.geometry._geometry)
         return np.asarray(unsigned_deltas)
 
     def compute_colors(self, min_val, max_val, steps):
@@ -536,7 +536,7 @@ class P2PRegistrationDialog(Standard.AsyncDialog):
         threshold = self._max_distance_spinbox.value()
         transform_init = np.eye(4, 4)
         point_to_plane_registration = o3d_pipelines.registration.registration_icp(
-                scan.geometry, target.geometry, threshold, transform_init,
+                scan.geometry._geometry, target.geometry._geometry, threshold, transform_init,
                 o3d_pipelines.registration.TransformationEstimationPointToPlane()
             )
         await aprint(f'Correspondece = {point_to_plane_registration.correspondence_set}: correspondences between source and target.')
