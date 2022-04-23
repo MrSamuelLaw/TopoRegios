@@ -15,14 +15,9 @@ from PySide6.QtCore import Qt, QMimeData
 from PySide6.QtGui import QClipboard
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QWidget, QMenu
-from PySide6.QtWidgets import QGridLayout, QSizePolicy, QSpacerItem, QHBoxLayout
+from PySide6.QtWidgets import QGridLayout, QSizePolicy, QSpacerItem, QHBoxLayout, QColorDialog
 from PySide6.QtWidgets import QDialog, QListWidget, QListWidgetItem, QPlainTextEdit, QFileDialog
 from PySide6.QtWidgets import QPushButton, QSpinBox, QDoubleSpinBox, QLabel, QCheckBox, QComboBox, QRadioButton
-
-"""
-    Look into using signals and slots 
-    for the side panel event architecture
-"""
 
 
 class Standard:
@@ -431,7 +426,7 @@ class ComparisonDialog(Standard.AsyncDialog):
         self.steps_spinbox.valueChanged.connect(self.on_value_changed)
 
     def compute_deltas(self, scan_cloud: O3DPointCloudModel, target_cloud: O3DPointCloudModel):
-        unsigned_deltas = scan_cloud.geometry._geometry.compute_point_cloud_distance(target_cloud.geometry._geometry)
+        unsigned_deltas = scan_cloud.geometry.compute_point_cloud_distance(target_cloud.geometry)
         return np.asarray(unsigned_deltas)
 
     def compute_colors(self, min_val, max_val, steps):
@@ -452,7 +447,7 @@ class ComparisonDialog(Standard.AsyncDialog):
 
     def reset_colors(self, cloud):
         """Resets the colors for the pointcloud"""
-        self._scan_cloud.geometry._geometry.colors = self._scan_cloud_origninal_colors
+        self._scan_cloud.geometry.colors = self._scan_cloud_origninal_colors
         self._scan_cloud.needs_update.true()
         
     def on_dropdown_changed(self, text: str):
@@ -482,11 +477,11 @@ class ComparisonDialog(Standard.AsyncDialog):
         return completed
 
 
-class RegistrationDialog(Standard.AsyncDialog):
+class P2PRegistrationDialog(Standard.AsyncDialog):
 
     def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList, parent=None):
         super().__init__(parent=parent)
-        self.setWindowTitle('Registration Dialog')
+        self.setWindowTitle('Point to Plane Registration Dialog')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self._target = target
         self._model_list = model_list
@@ -541,7 +536,7 @@ class RegistrationDialog(Standard.AsyncDialog):
         threshold = self._max_distance_spinbox.value()
         transform_init = np.eye(4, 4)
         point_to_plane_registration = o3d_pipelines.registration.registration_icp(
-                scan.geometry._geometry, target.geometry._geometry, threshold, transform_init,
+                scan.geometry, target.geometry, threshold, transform_init,
                 o3d_pipelines.registration.TransformationEstimationPointToPlane()
             )
         await aprint(f'Correspondece = {point_to_plane_registration.correspondence_set}: correspondences between source and target.')
@@ -568,6 +563,7 @@ class CroppingDialog(Standard.AsyncDialog):
         super().__init__(parent=parent)
         self.setWindowTitle('Cropping Dialog')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
+        self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
 
         self.bounding_box = None
         self._target = target
@@ -885,6 +881,24 @@ class SidePanel(QWidget):
             def on_transparent_changed(self, state: int):
                 self.model.transparent = bool(state)
 
+            def on_paint_uniform_color(self):
+                # get a color from the color dialog
+                color_dialog = QColorDialog(parent=None)
+                color_dialog.setOption(QColorDialog.DontUseNativeDialog)
+                color_dialog.setWindowFlag(Qt.WindowStaysOnTopHint)
+                color = color_dialog.getColor()
+                if color.isValid():
+                    rgb = np.array(color.getRgbF()[:-1])
+                    self.model.geometry.paint_uniform_color(rgb)
+                    self.model.needs_update.true()
+
+            def on_remove_color(self):
+                if isinstance(self.model, O3DPointCloudModel):
+                    self.model.geometry.colors = o3d_utils.Vector3dVector()
+                elif isinstance(self.model, O3DTriangleMeshModel):
+                    self.model.geometry.vertex_colors = o3d_utils.Vector3dVector()
+                self.model.needs_update.true()
+
             def on_copy_coordinates(self):
                 # copy coordinates as an array to the global clipboard
                 clipboard = QClipboard()
@@ -951,7 +965,7 @@ class SidePanel(QWidget):
                 asyncio.create_task(self.register_pointclouds())
 
             async def register_pointclouds(self):
-                dialog = RegistrationDialog(self.model, self.side_panel.model_list)
+                dialog = P2PRegistrationDialog(self.model, self.side_panel.model_list)
                 await dialog.run()
 
             def on_compare_pointclouds(self):
@@ -959,8 +973,7 @@ class SidePanel(QWidget):
 
             async def compare_pointclouds(self):
                 dialog = ComparisonDialog(self.model, self.side_panel.model_list)
-                if await dialog.run():
-                    pass
+                await dialog.run()
 
             def on_export_pointcoud(self):
                 asyncio.create_task(self.export_pointcloud())
@@ -971,18 +984,17 @@ class SidePanel(QWidget):
                 if filename:
                     path = Path(filename).resolve()
                     data = np.asarray(self.model.geometry.points)
-                    np.savetxt(path, data, delimiter='    ')                
+                    np.savetxt(path, data, delimiter='    ')           
             
             def showContextMenu(self, pos):
                 menu = QMenu(parent=self)
                 # add the actions that do not depend on the model type
-                delete_action = menu.addAction('Delete')
-                copy_action = menu.addAction('Copy Coordinates')
-                paste_action = menu.addAction('Paste Coordinates')
                 callbacks = {
-                    delete_action: self.model.delete_later,
-                    copy_action: self.on_copy_coordinates,
-                    paste_action: self.on_paste_coordinates
+                    menu.addAction('Delete'): self.model.delete_later,
+                    menu.addAction('Copy Coordinates'): self.on_copy_coordinates,
+                    menu.addAction('Paste Coordinates'): self.on_paste_coordinates,
+                    menu.addAction('Set Color'): self.on_paint_uniform_color,
+                    menu.addAction('Remove Color'): self.on_remove_color,
                 }
 
                 # add the stl specific manu items

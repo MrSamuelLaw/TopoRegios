@@ -1,6 +1,6 @@
 from copy import deepcopy
 import numpy as np
-from typing import Union, Tuple
+from typing import Union, Tuple, Any
 from open3d import geometry as o3d_geometry
 from open3d.visualization import rendering as o3d_rendering
 from hyperviz.utilities import BoolTrigger, WatchableList
@@ -10,19 +10,24 @@ class O3DGeometryWrapper():
     """Wrapper object to allow overwritting/extension of o3d goemetry methods"""
     
     def __init__(self, o3d_geometry_object):
-        self._geometry = o3d_geometry_object
-        for attribute_name in dir(self._geometry):
-            if not hasattr(self, attribute_name):
-                method = getattr(self._geometry, attribute_name)
-                if callable(method):
-                    method = O3DGeometryWrapper.method_wrapper(method)
-                self.__setattr__(attribute_name, method)
+        object.__setattr__(self, '_geometry', o3d_geometry_object)
 
-    @staticmethod
-    def method_wrapper(method):
-        def wrapper(*args, **kwargs):
-            return method(*args, **kwargs)
-        return wrapper
+    def __getattribute__(self, __name: str) -> Any:
+        obj = object.__getattribute__(self, '_geometry')
+        # give priority to the o3d version of a function/attribute
+        if hasattr(obj, __name):
+            return getattr(obj, __name)
+        # fallback to own version of a function/attribute
+        return object.__getattribute__(self, __name)
+
+    def __setattr__(self, __name: str, __value: Any):
+        obj = object.__getattribute__(self, '_geometry')
+        # assign the value to the o3d geometry if possible
+        if hasattr(obj, __name):
+            setattr(obj, __name, __value)
+        # fallback to the wrapper if o3d geometry does not have attribute
+        else:
+            object.__setattr__(self, __name, __value)
 
 
 class O3DBaseModel:

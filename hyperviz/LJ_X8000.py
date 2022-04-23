@@ -40,7 +40,7 @@ def bmp_to_point_cloud(path: Union[Path, str], extra_offset=0.0) -> o3d.geometry
         f'height map computation duration: {t3 - t2:.5f} sec',
         f'height map -> numpy 3D point array duration: {t4 - t3:.5f} sec',
         f'numpy 3D point array -> O3DPointCloud duration: {t5 - t4:.5f} sec',
-        f'O3DPointCloud Estimate Normals Duraiton: {t6 - t5}: sec',
+        f'O3DPointCloud Estimate Normals Duraiton: {t6 - t5:.5f}: sec',
         f'total time = {t6 - t1:.5f}: sec'
     ]
     text = '\n'.join(lines)
