@@ -1,47 +1,23 @@
 from copy import deepcopy
 import numpy as np
 from typing import Union, Tuple, Any
+from open3d import utility as o3d_utils
 from open3d import geometry as o3d_geometry
 from open3d.visualization import rendering as o3d_rendering
 from hyperviz.utilities import BoolTrigger, WatchableList
 
 
-class O3DGeometryWrapper():
-    """Wrapper object to allow overwritting/extension of o3d goemetry methods"""
-    
-    def __init__(self, o3d_geometry_object):
-        object.__setattr__(self, '_geometry', o3d_geometry_object)
-
-    def __getattribute__(self, __name: str) -> Any:
-        obj = object.__getattribute__(self, '_geometry')
-        # give priority to the o3d version of a function/attribute
-        if hasattr(obj, __name):
-            return getattr(obj, __name)
-        # fallback to own version of a function/attribute
-        return object.__getattribute__(self, __name)
-
-    def __setattr__(self, __name: str, __value: Any):
-        obj = object.__getattribute__(self, '_geometry')
-        # assign the value to the o3d geometry if possible
-        if hasattr(obj, __name):
-            setattr(obj, __name, __value)
-        # fallback to the wrapper if o3d geometry does not have attribute
-        else:
-            object.__setattr__(self, __name, __value)
-
 
 class O3DBaseModel:
-    def __init__(self, name: str, geometry: O3DGeometryWrapper, group: str=None, transparent: bool=False, visible: bool=True):
+    def __init__(self, name: str, geometry: o3d_geometry.Geometry3D, group: str=None, transparent: bool=False, visible: bool=True):
         """Model from which PointCloudModel and TriangleMeshModel inherit.
         *if you want to keep track of transformation history, do not 
         call O3DBaseModel.geometry.translate or rotate directly,
-        instead use the transform function."""
+        instead use the cartisian_transform function."""
 
         # run type checks
         if type(self) == O3DBaseModel:
             raise TypeError('BaseModel cannot be called directly, please inherit from it')
-        elif not isinstance(geometry, O3DGeometryWrapper):
-            raise TypeError('Goemetry has not been wrapped using O3dGeometryWrapper')
         elif geometry.dimension() != 3:
             raise TypeError('Model is not instance of open3d.geometry.Geometry3D')
 
@@ -53,7 +29,8 @@ class O3DBaseModel:
         self.group = group
         self.transparent = transparent
         self.visible = visible
-        self._transformation_matrix = np.eye(4, 4, dtype=np.float64)
+        self._color: np.ndarray = None  # [r, g, b] dtype=np.float64
+        self._transformation_matrix = np.eye(4, 4, dtype=np.float64)      # 4 x 4 identity matrix
         self._cartisian_coordinates = np.zeros((2, 3), dtype=np.float64)  # [0] = Px, Py, Pz, [1] = Rx, Ry, Rz in radians
 
         # validate name before assigning to read only property name
@@ -63,8 +40,14 @@ class O3DBaseModel:
             raise ValueError('name cannot be empty string')
         else:
             self._name = name
+
+    def __getattr__(self, __name: str) -> Any:
+        if hasattr(self._geometry, __name):
+            return getattr(self._geometry, __name)
+        else:
+            raise AttributeError(f'Object of type {self} does not have attribute {__name}')
     
-    def _cartisian_transform_wrapper(self, position_vector, rotation_vector):
+    def cartisian_transform(self, position_vector, rotation_vector):
         if not self.position_locked:
             # determine relative movements
             relative_translation = position_vector - self._cartisian_coordinates[0]
@@ -110,7 +93,7 @@ class O3DBaseModel:
         """Returns a dictionary compatible with the O3DVisualizer's add_geometry method"""
         this = {
             'name': self.name, 
-            'geometry': self.geometry._geometry,
+            'geometry': self.geometry,
             'material': self._material_record,
             'group': self.group,
             'is_visible': self.visible
@@ -119,20 +102,18 @@ class O3DBaseModel:
         return this
 
     @property
-    def geometry(self) -> O3DGeometryWrapper:
+    def geometry(self) -> o3d_geometry.Geometry3D:
         self.needs_update.true()
         return self._geometry
 
     @geometry.setter
-    def geometry(self, geometry: O3DGeometryWrapper):
+    def geometry(self, geometry: o3d_geometry.Geometry3D):
         try:
             geometry.get_geometry_type()
         except Exception as e:
             raise TypeError('geometry must be of type open3d.geometry.Geometry')
-        if not isinstance(O3DGeometryWrapper):
-            geometry = O3DGeometryWrapper(geometry)
-        geometry.cartisian_transform = self._cartisian_transform_wrapper
         self._geometry = geometry 
+        self.color = None
         self.needs_update.true()        
 
     def delete_later(self):
@@ -154,6 +135,17 @@ class O3DBaseModel:
         elif (group is not None) and (not group):
             raise ValueError('group cannot be empty string')
         self._group = group
+        self.needs_update.true()
+
+    @property
+    def color(self) -> np.ndarray:
+        return np.copy(self._color) if self._color is not None else None
+
+    @color.setter
+    def color(self, color: Union[np.ndarray, None]):
+        if color.shape != (1, 3):
+            raise ValueError('Color must be a 1x3 array of floats between 0 and 1')
+        self._color = color
         self.needs_update.true()
 
     @property
@@ -184,8 +176,6 @@ class O3DBaseModel:
 
     @visible.setter
     def visible(self, visible: bool):
-        if not isinstance(visible, (bool,)):
-            raise TypeError('visible must be type bool')
         self._visible = visible
         self.needs_update.true()
 
@@ -193,41 +183,49 @@ class O3DBaseModel:
 class O3DPointCloudModel(O3DBaseModel):
 
     def __init__(self, name: str, pointcloud=o3d_geometry.PointCloud(), group: str=None, transparent: bool=False, visible: bool=True):
-        pointcloud = O3DGeometryWrapper(pointcloud)
         super().__init__(name, pointcloud, group, transparent, visible)
 
     @property
-    def geometry(self) -> O3DGeometryWrapper:
+    def geometry(self) -> o3d_geometry.PointCloud:
         return self._geometry
 
     @geometry.setter
-    def geometry(self, geometry: O3DGeometryWrapper):
+    def geometry(self, geometry: o3d_geometry.PointCloud):
         if geometry.get_geometry_type() != o3d_geometry.Geometry.Type.PointCloud:
             raise TypeError('geometry is not of type open3d.geometry.PointCloud')
-        if not isinstance(geometry, O3DGeometryWrapper):
-            geometry = O3DGeometryWrapper(geometry)
-        geometry.cartisian_transform = self._cartisian_transform_wrapper
         self._geometry = geometry
+    
+    @O3DBaseModel.color.setter
+    def color(self, color: Union[np.ndarray, None]):
+        self._color = color
+        if color is not None:
+            self.geometry.paint_uniform_color(color)
+        else:
+            self.geometry.colors = o3d_utils.Vector3dVector()
 
 
 class O3DTriangleMeshModel(O3DBaseModel):
 
     def __init__(self, name: str, trianglemesh=o3d_geometry.TriangleMesh(), group: str=None, transparent:bool=False, visible: bool=True):
-        trianglemesh = O3DGeometryWrapper(trianglemesh)
         super().__init__(name, trianglemesh, group, transparent, visible)
     
     @property
-    def geometry(self) -> O3DGeometryWrapper:
+    def geometry(self) -> o3d_geometry.TriangleMesh:
         return self._geometry
 
     @geometry.setter
-    def geometry(self, geometry: O3DGeometryWrapper):
+    def geometry(self, geometry: o3d_geometry.TriangleMesh):
         if geometry.get_geometry_type() != o3d_geometry.Geometry.Type.TriangleMesh:
             raise TypeError('geometry is not of type open3d.geoemtry.TriangleMesh')
-        if not isinstance(geometry, O3DGeometryWrapper):
-            geometry = O3DGeometryWrapper(geometry)
-        geometry.cartisian_transform = self._cartisian_transform_wrapper
         self._geometry = geometry
+
+    @O3DBaseModel.color.setter
+    def color(self, color: Union[np.ndarray, None]):
+        self._color = color
+        if color is not None:
+            self.geometry.paint_uniform_color(color)
+        else:
+            self.geometry.vertex_colors = o3d_utils.Vector3dVector()
 
 
 class O3DTextModel():
@@ -278,7 +276,3 @@ class O3DModelList(WatchableList):
     def get_model(self, name: str) -> Union[O3DBaseModel, None]:
         results = [m for m in self if m.name == name]
         return results[0] if results else None
-
-
-if __name__ == '__main__':
-    stl = O3DGeometryWrapper(o3d_geometry.TriangleMesh.create_box())

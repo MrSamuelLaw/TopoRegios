@@ -1,4 +1,3 @@
-import sys
 import asyncio
 from pathlib import Path
 from copy import deepcopy
@@ -7,17 +6,16 @@ import numpy as np
 from open3d import pipelines as o3d_pipelines
 from open3d import utility as o3d_utils
 from open3d import geometry as o3d_geometry
-from hyperviz import LJ_X8000
 from hyperviz.models import O3DBaseModel, O3DTriangleMeshModel, O3DPointCloudModel, O3DTextModel, O3DModelList
-from hyperviz.utilities import BoolTrigger, WatchableList, multidim_xor, unique_rename, aprint
+from hyperviz.utilities import BoolTrigger, WatchableList, multidim_xor, unique_rename, aprint, PRIMARY_PLANE
 from hyperviz.linear_color_mapper import LinearColorMapper, LinearColorMapperItem
 from PySide6.QtCore import Qt, QMimeData
 from PySide6.QtGui import QClipboard
-from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QWidget, QMenu
 from PySide6.QtWidgets import QGridLayout, QSizePolicy, QSpacerItem, QHBoxLayout, QColorDialog
 from PySide6.QtWidgets import QDialog, QListWidget, QListWidgetItem, QPlainTextEdit, QFileDialog
-from PySide6.QtWidgets import QPushButton, QSpinBox, QDoubleSpinBox, QLabel, QCheckBox, QComboBox, QRadioButton
+from PySide6.QtWidgets import QPushButton, QSpinBox, QDoubleSpinBox, QLabel, QCheckBox, QComboBox, QRadioButton     
+        
 
 
 class Standard:
@@ -203,8 +201,8 @@ class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
 
     def get_points_from_model(self, name: str) -> int:
         model = self.model_list.get_model(name)
-        if (model is not None) and model.geometry.has_points():
-            npoints = len(model.geometry.points)
+        if (model is not None) and model.has_points():
+            npoints = len(model.points)
             self.npoints_spinbox.setValue(npoints)
 
     async def run(self):
@@ -214,9 +212,10 @@ class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
             await aprint('Converting STL -> PCD')
             target = self.target
             npoints = self.npoints
-            point_cloud = target.geometry.sample_points_uniformly(npoints)
+            point_cloud = target.sample_points_uniformly(npoints)
             name = unique_rename([m.name for m in self.model_list], target.name + '_pcd', '_pcd')
             point_cloud = O3DPointCloudModel(name, point_cloud)
+            point_cloud.color = None
             self.model_list.append(point_cloud)
             await aprint('STL -> PCD conversion complete')
         else:
@@ -227,7 +226,7 @@ class TriangleMeshToPointCloudDialog(Standard.AsyncDialog):
 class OutlierRemovalDialog(Standard.AsyncDialog):
 
     preview_name = '__removal_preview__'
-    algoithms = ['Radius Outlier Removal', 'Statistical Outlier Removal']
+    algoithms = ['Statistical Outlier Removal', 'Radius Outlier Removal']
 
     def __init__(self, target: O3DPointCloudModel, model_list: O3DModelList):
         super().__init__(parent=None)
@@ -315,18 +314,18 @@ class OutlierRemovalDialog(Standard.AsyncDialog):
         tolerance = self.tolerance_spinbox.value()
 
         if index == 0: # radius outlier
-            pointcloud, keep_idx = self._target.geometry.remove_radius_outlier(n, tolerance)
+            pointcloud, keep_idx = self._target.remove_radius_outlier(n, tolerance)
         elif index == 1:  # statistical outlier removal
-            pointcloud, keep_idx = self._target.geometry.remove_statistical_outlier(n, tolerance)
+            pointcloud, keep_idx = self._target.remove_statistical_outlier(n, tolerance)
         self._keep_idx = keep_idx
         self._preview_model.geometry = deepcopy(self._target.geometry)
 
         # paint the model with a removal color
         remove_color = np.array([255, 51, 204], dtype=np.float64)/255
-        self._preview_model.geometry.paint_uniform_color(remove_color)
+        self._preview_model.color = None
 
         # grab the array of colors that now exists and pain the keep points
-        colors = np.asarray(self._preview_model.geometry.colors)
+        colors = np.asarray(self._preview_model.colors)
         keep_color = np.array([146, 255, 8], dtype=np.float64)/255
         colors[keep_idx] = keep_color
         
@@ -363,8 +362,8 @@ class ComparisonDialog(Standard.AsyncDialog):
         self._default_steps = 20
         self._default_color = np.array([206, 206, 206], dtype=np.float64)/255
         self._scan_cloud: O3DPointCloudModel = target
-        self._scan_cloud_origninal_colors = deepcopy(self._scan_cloud.geometry.colors)
-        self._scan_cloud.geometry.paint_uniform_color(self._default_color)
+        self._scan_cloud_origninal_colors = self._scan_cloud.color
+        self._scan_cloud.color = self._default_color
         self._scan_cloud_new_colors = np.asarray(self._scan_cloud.geometry.colors)
         self._deltas = None
 
@@ -426,7 +425,7 @@ class ComparisonDialog(Standard.AsyncDialog):
         self.steps_spinbox.valueChanged.connect(self.on_value_changed)
 
     def compute_deltas(self, scan_cloud: O3DPointCloudModel, target_cloud: O3DPointCloudModel):
-        unsigned_deltas = scan_cloud.geometry._geometry.compute_point_cloud_distance(target_cloud.geometry._geometry)
+        unsigned_deltas = scan_cloud.compute_point_cloud_distance(target_cloud.geometry)
         return np.asarray(unsigned_deltas)
 
     def compute_colors(self, min_val, max_val, steps):
@@ -536,7 +535,7 @@ class P2PRegistrationDialog(Standard.AsyncDialog):
         threshold = self._max_distance_spinbox.value()
         transform_init = np.eye(4, 4)
         point_to_plane_registration = o3d_pipelines.registration.registration_icp(
-                scan.geometry._geometry, target.geometry._geometry, threshold, transform_init,
+                scan.geometry, target.geometry, threshold, transform_init,
                 o3d_pipelines.registration.TransformationEstimationPointToPlane()
             )
         await aprint(f'Correspondece = {point_to_plane_registration.correspondence_set}: correspondences between source and target.')
@@ -551,7 +550,7 @@ class P2PRegistrationDialog(Standard.AsyncDialog):
         rot = scan.cartisian_coordinates[1] + np.array([rx, ry, rz])
         await aprint(f'Translation = {pos}: x, y, z, translations used to align scan to target.')
         await aprint(f'Rotation = {rot}: x, y, z, euler angles used to align scan to target.')
-        scan.geometry.cartisian_transform(pos, rot)
+        scan.cartisian_transform(pos, rot)
         await aprint('Registration Complete')
     
 
@@ -564,6 +563,7 @@ class CroppingDialog(Standard.AsyncDialog):
         self.setWindowTitle('Cropping Dialog')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
+        self.resize(400, 300)
 
         self.bounding_box = None
         self._target = target
@@ -624,7 +624,7 @@ class CroppingDialog(Standard.AsyncDialog):
     def on_target_changed(self, name: str):
         self._target = self._model_list.get_model(name)
         # compute the dimensions of the box 
-        oriented_bounding_box = self._target.geometry.get_oriented_bounding_box()
+        oriented_bounding_box = self._target.get_oriented_bounding_box()
         max_bound: np.array = oriented_bounding_box.get_max_bound()
         min_mound: np.array = oriented_bounding_box.get_min_bound()
         dimensions = max_bound - min_mound
@@ -654,10 +654,10 @@ class CroppingDialog(Standard.AsyncDialog):
             self._model_list.append(model)
        
         # apply the transformation
-        model.geometry.cartisian_transform(position, rotation)
+        model.cartisian_transform(position, rotation)
         
         # update the bounding box with the point labels
-        self._points = np.asarray(model.geometry.vertices)
+        self._points = np.asarray(model.vertices)
 
         # update the labels from the points
         if self._labels is None:
@@ -684,7 +684,7 @@ class CroppingDialog(Standard.AsyncDialog):
             # update the model and query the bounding box
             model = self._model_list.get_model(self.model_name)
             model.needs_update.true()
-            self.bounding_box = model.geometry.get_oriented_bounding_box()
+            self.bounding_box = model.get_oriented_bounding_box()
             [t.needs_update.true() for t in self._text_list]
             
     def write_to_spinboxes(self, array: np.array):
@@ -710,11 +710,11 @@ class CroppingDialog(Standard.AsyncDialog):
             target = self.target
             bounding_box = self.bounding_box
             name = unique_rename([m.name for m in self._model_list], target.name, '_crop')
-            crop = O3DPointCloudModel(name, target.geometry.crop(bounding_box))
+            crop = O3DPointCloudModel(name, target.crop(bounding_box))
             crop.set_positional_data((np.copy(target.cartisian_coordinates), np.copy(target.transformation_matrix)))
-            if crop.geometry.has_points() and self.keep_outside_radiobutton.isChecked():
+            if crop.has_points() and self.keep_outside_radiobutton.isChecked():
                     # invert the crop if it has any points. In other words, delete the crop, keep the rest
-                    idx, *_ = multidim_xor(np.asarray(target.geometry.points), np.asarray(crop.geometry.points))
+                    idx, *_ = multidim_xor(np.asarray(target.points), np.asarray(crop.points))
                     crop.geometry = target.geometry.select_by_index(idx)
             # add the crop to the model list
             self._model_list.append(crop)
@@ -722,7 +722,6 @@ class CroppingDialog(Standard.AsyncDialog):
         else:
             await aprint('Crop cancled')
         return completed
-
 
     class ListWidget(QListWidget):
 
@@ -761,7 +760,7 @@ class CroppingDialog(Standard.AsyncDialog):
 
 class SidePanel(QWidget):
     
-    def __init__(self, model_list: O3DModelList, text_list_ref: WatchableList):
+    def __init__(self, model_list: O3DModelList, text_list: WatchableList, camera):
         """
         window is of type O3DVisualizer
         """
@@ -769,33 +768,104 @@ class SidePanel(QWidget):
         self.setWindowFlag(Qt.WindowCloseButtonHint, False)
         self.setWindowTitle('SidePanel')
         self.model_list = model_list
-        self.text_list = text_list_ref
+        self.text_list = text_list
+        self.camera = camera
 
         # create the layout
         layout = QGridLayout(parent=self)
         layout.setContentsMargins(0, 0, 0, 0)
-        [layout.setRowStretch(r, v) for r, v in enumerate((0, 0, 1))]
+        [layout.setRowStretch(r, v) for r, v in enumerate((0, 0, 0, 0, 1))]
         self.setLayout(layout)
 
+        currow = 0
+        # set up the view buttons
+        self.front_button = Standard.Button(text='Front', parent=self)  
+        self.top_button = Standard.Button(text='Top', parent=self)      
+        self.right_button = Standard.Button(text='Right', parent=self)
+        self.front_button.clicked.connect(self.look_at_wrapper(PRIMARY_PLANE.FRONT))
+        self.top_button.clicked.connect(self.look_at_wrapper(PRIMARY_PLANE.TOP))
+        self.right_button.clicked.connect(self.look_at_wrapper(PRIMARY_PLANE.RIGHT))
+        layout.addWidget(self.front_button, currow, 0)
+        layout.addWidget(self.top_button, currow, 1)
+        layout.addWidget(self.right_button, currow, 2)
+
+        currow += 1
+        # set up the second row of view buttons
+        self.back_button = Standard.Button(text='Back', parent=self)  
+        self.bottom_button = Standard.Button(text='Bottom', parent=self)      
+        self.left_button = Standard.Button(text='Left', parent=self)
+        self.back_button.clicked.connect(self.look_at_wrapper(PRIMARY_PLANE.BACK))
+        self.bottom_button.clicked.connect(self.look_at_wrapper(PRIMARY_PLANE.BOTTOM))
+        self.left_button.clicked.connect(self.look_at_wrapper(PRIMARY_PLANE.LEFT))
+        layout.addWidget(self.back_button, currow, 0)
+        layout.addWidget(self.bottom_button, currow, 1)
+        layout.addWidget(self.left_button, currow, 2)
+        
+        currow += 1
         # set up the listview widget
         self.listview = SidePanel.ListWidget(parent=self)
         self.listview.setToolTip('Right click on items for more options')
         self.listview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.refresh_list_view(self.model_list)
         self.model_list.subscribe(self.refresh_list_view)
-        layout.addWidget(self.listview, 0, 0)
+        layout.addWidget(self.listview, currow, 0, 1, 3)
 
+        currow += 1
         # set up the rotate/translate widget
         self.pos_rot_widget = SidePanel.PositionRotationWidget(parent=self)
         self.pos_rot_widget.setToolTip('Moves the selected model. Has no effect on locked models')
         self.pos_rot_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.listview.currentItemChanged.connect(self.on_current_item_changed)
-        layout.addWidget(self.pos_rot_widget, 1, 0)
+        layout.addWidget(self.pos_rot_widget, currow, 0, 1, 3)
 
+        currow += 1
         # setup the console
         self.console = SidePanel.Console(parent=self)
         self.console.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        layout.addWidget(self.console, 2, 0)
+        layout.addWidget(self.console, currow, 0, 1, 3)
+
+    def compute_scene_bounds(self):
+        """Returns the min and max bounds from all the models"""
+        bounds = [m.get_min_bound() for m in self.model_list]
+        bounds.extend([m.get_max_bound() for m in self.model_list])
+        bounds = np.array(bounds)
+        bounds.reshape(3, -1)
+        bounds = bounds.T
+        min_bounds = np.array([bounds[i].min() for i in range(bounds.shape[0])])
+        max_bounds = np.array([bounds[i].max() for i in range(bounds.shape[0])])
+        return min_bounds, max_bounds
+
+    def compute_camera_center(self, min_bounds: np.ndarray, max_bounds: np.ndarray, plane: PRIMARY_PLANE):
+        delta = max_bounds - min_bounds
+        center = delta*0.5 + min_bounds
+        mask = plane.on.view(np.bool8)
+        center[mask] = max_bounds[mask] if plane.on.sum() > 0 else min_bounds[mask]
+        return center
+
+    def compute_camera_eye(self, min_bounds: np.ndarray, max_bounds: np.ndarray, center: np.ndarray, plane: PRIMARY_PLANE):
+        # compute the distance away from the surface the camera must be
+        delta = max_bounds - min_bounds
+        mask = plane.on.view(np.bool8)
+        width = max(delta[~mask])
+        theta = self.camera.get_field_of_view()
+        phi = np.deg2rad(theta*0.5)
+        length = width*0.5/np.tan(phi)
+    
+        # add the distance to the center coordinate
+        eye = np.copy(center)
+        eye[mask] += length if plane.on.sum() > 0 else -length
+        return eye
+
+    def look_at(self, plane: PRIMARY_PLANE):
+        min_bound, max_bound = self.compute_scene_bounds()
+        center = self.compute_camera_center(min_bound, max_bound, plane)
+        eye = self.compute_camera_eye(min_bound, max_bound, center, plane)
+        self.camera.look_at(center, eye, plane.up)
+
+    def look_at_wrapper(self, plane):
+        def wrapper():
+            self.look_at(plane)
+        return wrapper
     
     # expose child widget functions to the top level for easy access
     def refresh_list_view(self, model_list: List):
@@ -806,6 +876,11 @@ class SidePanel(QWidget):
             item.setSizeHint(content.minimumSizeHint())
             self.listview.addItem(item)
             self.listview.setItemWidget(item, content)
+            # set the color if possible
+            if m.color is None:
+                content._remove_background_color()
+            elif len(m.color) > 0:
+                content._set_background_color(*m.color)
 
     def refresh_pos_rot_widget(self, model):
         self.pos_rot_widget.refresh_coordinates(model)
@@ -881,6 +956,14 @@ class SidePanel(QWidget):
             def on_transparent_changed(self, state: int):
                 self.model.transparent = bool(state)
 
+            def _set_background_color(self, r: float, g: float, b: float):
+                self.setAttribute(Qt.WA_StyledBackground, True)
+                r, g, b = [int(v*255) for v in (r, g, b)]
+                self.setStyleSheet(f'background: rgb({r},{g},{b});')
+
+            def _remove_background_color(self):
+                self.setStyleSheet('')
+
             def on_paint_uniform_color(self):
                 # get a color from the color dialog
                 color_dialog = QColorDialog(parent=None)
@@ -889,14 +972,13 @@ class SidePanel(QWidget):
                 color = color_dialog.getColor()
                 if color.isValid():
                     rgb = np.array(color.getRgbF()[:-1])
-                    self.model.geometry.paint_uniform_color(rgb)
+                    self._set_background_color(*rgb)
+                    self.model.color = rgb
                     self.model.needs_update.true()
 
             def on_remove_color(self):
-                if isinstance(self.model, O3DPointCloudModel):
-                    self.model.geometry.colors = o3d_utils.Vector3dVector()
-                elif isinstance(self.model, O3DTriangleMeshModel):
-                    self.model.geometry.vertex_colors = o3d_utils.Vector3dVector()
+                self.model.color = None
+                self._remove_background_color()
                 self.model.needs_update.true()
 
             def on_copy_coordinates(self):
@@ -926,7 +1008,7 @@ class SidePanel(QWidget):
                 # transform back to the origin
                 to_origin = np.linalg.inv(self.model.transformation_matrix)
                 transformation = np.dot(transformation_matrix, to_origin)
-                self.model.geometry.transform(transformation)
+                self.model.transform(transformation)
                 # tell the model where it's now at
                 self.model.set_positional_data((cartisian_coordinates, transformation_matrix))
                 self.model.needs_update.true()
@@ -983,7 +1065,7 @@ class SidePanel(QWidget):
                 filename, *_ = QFileDialog.getSaveFileName(None, 'Export File', name)
                 if filename:
                     path = Path(filename).resolve()
-                    data = np.asarray(self.model.geometry.points)
+                    data = np.asarray(self.model.points)
                     np.savetxt(path, data, delimiter='    ')           
             
             def showContextMenu(self, pos):
@@ -1093,14 +1175,14 @@ class SidePanel(QWidget):
                 position_vector = np.array([sb.value() for sb in self.pos_spinboxes])
                 rotation_vector = np.array([np.deg2rad(sb.value()) for sb in self.rot_spinboxes])
                 model = self.side_panel.selected_model
-                model.geometry.cartisian_transform(position_vector, rotation_vector)
+                model.cartisian_transform(position_vector, rotation_vector)
 
         def on_coordinate_changed_slow(self):
             if not self.fast_updates_checkbox.isChecked():
                 position_vector = np.array([sb.value() for sb in self.pos_spinboxes])
                 rotation_vector = np.array([np.deg2rad(sb.value()) for sb in self.rot_spinboxes])
                 model = self.side_panel.selected_model
-                model.geometry.cartisian_transform(position_vector, rotation_vector)
+                model.cartisian_transform(position_vector, rotation_vector)
 
 
     class Console(QPlainTextEdit):

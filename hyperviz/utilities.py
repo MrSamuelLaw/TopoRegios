@@ -4,6 +4,40 @@ from typing import List, Callable
 from collections import deque
 
 
+class PRIMARY_PLANE:
+    """UP is the axis that is pointing "up" in the scene
+    ON is the axis that the camera is "on". All arrays
+    are of the form np.asarray([i, j, k], dtype=np.float32)"""
+
+    
+    on: np.ndarray = None  # virtual attribute
+    up: np.ndarray = None  # virtual attribute
+    
+    class FRONT:
+        on = np.asarray([0, 0, 1], dtype=np.int8)
+        up = np.asarray([0, 1, 0], dtype=np.int8)
+        
+    class BACK:
+        on = np.asarray([0, 0, -1], dtype=np.int8)
+        up = np.asarray([0, 1, 0], dtype=np.int8)
+
+    class TOP:
+        on = np.asarray([0, 1, 0], dtype=np.int8)
+        up = np.asarray([0, 0, -1], dtype=np.int8)
+        
+    class BOTTOM:
+        on = np.asarray([0, -1, 0], dtype=np.int8)
+        up = np.asarray([0, 0, 1], dtype=np.int8)
+        
+    class RIGHT:
+        on = np.asarray([1, 0, 0], dtype=np.int8)
+        up = np.asarray([0, 1, 0], dtype=np.int8)
+
+    class LEFT:
+        on = np.asarray([-1, 0, 0], dtype=np.int8)
+        up = np.asarray([0, 1, 0], dtype=np.int8)
+
+
 class R_TRIG():
     """Used to detect the leading edge of a signal
     as it goes from False to True"""

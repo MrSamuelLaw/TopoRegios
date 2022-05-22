@@ -43,10 +43,12 @@ class Vizualizer():
         self._window.add_action('import stl', self.on_import_stl)
         self._window.add_action('import bmp', self.on_import_bmp)
 
+        # get the camera
+        camera = self._window.scene.view.get_camera()
+
         # init the pyside window and app
         self.qapp = QApplication()
-
-        self._sidepanel = SidePanel(self.model_list, self.text_list)
+        self._sidepanel = SidePanel(self.model_list, self.text_list, camera)
         o3d_utils.set_verbosity_level(o3d_utils.VerbosityLevel.Error)
         sys.stdout = self._sidepanel.console
         sys.stderr = self._sidepanel.console
