@@ -314,17 +314,17 @@ class OutlierRemovalDialog(Standard.AsyncDialog):
         tolerance = self.tolerance_spinbox.value()
 
         if index == 0: # radius outlier
-            pointcloud, keep_idx = self._target.remove_radius_outlier(n, tolerance)
-        elif index == 1:  # statistical outlier removal
             pointcloud, keep_idx = self._target.remove_statistical_outlier(n, tolerance)
+        elif index == 1:  # statistical outlier removal
+            pointcloud, keep_idx = self._target.remove_radius_outlier(n, tolerance)
         self._keep_idx = keep_idx
         self._preview_model.geometry = deepcopy(self._target.geometry)
 
         # paint the model with a removal color
         remove_color = np.array([255, 51, 204], dtype=np.float64)/255
-        self._preview_model.color = None
+        self._preview_model.color = remove_color
 
-        # grab the array of colors that now exists and pain the keep points
+        # grab the array of colors that now exists and paint the keep points
         colors = np.asarray(self._preview_model.colors)
         keep_color = np.array([146, 255, 8], dtype=np.float64)/255
         colors[keep_idx] = keep_color
@@ -446,7 +446,7 @@ class ComparisonDialog(Standard.AsyncDialog):
 
     def reset_colors(self, cloud):
         """Resets the colors for the pointcloud"""
-        self._scan_cloud.geometry.colors = self._scan_cloud_origninal_colors
+        self._scan_cloud.color = self._scan_cloud_origninal_colors
         self._scan_cloud.needs_update.true()
         
     def on_dropdown_changed(self, text: str):
@@ -532,11 +532,16 @@ class P2PRegistrationDialog(Standard.AsyncDialog):
         await asyncio.sleep(1E-9)
         target: O3DPointCloudModel = self._model_list.get_model(self.target_dropdown.currentText())
         scan: O3DPointCloudModel = self._model_list.get_model(self.scan_dropdown.currentText())
+        scan_points = np.asarray(scan.points)
+        # loss = o3d_pipelines.registration.TukeyLoss(k=0.05)
+        # method = o3d_pipelines.registration.TransformationEstimationPointToPlane(loss)
         threshold = self._max_distance_spinbox.value()
         transform_init = np.eye(4, 4)
+        criteria = o3d_pipelines.registration.ICPConvergenceCriteria(max_iteration=10)
         point_to_plane_registration = o3d_pipelines.registration.registration_icp(
                 scan.geometry, target.geometry, threshold, transform_init,
-                o3d_pipelines.registration.TransformationEstimationPointToPlane()
+                o3d_pipelines.registration.TransformationEstimationPointToPlane(),
+                criteria
             )
         await aprint(f'Correspondece = {point_to_plane_registration.correspondence_set}: correspondences between source and target.')
         await aprint(f'Fitness = {point_to_plane_registration.fitness}: The overlapping area (# of inlier correspondeces/# of points in source). Higher is better.')

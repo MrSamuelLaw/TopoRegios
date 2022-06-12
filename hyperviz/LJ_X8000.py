@@ -3,7 +3,7 @@ import numpy as np
 import open3d as o3d
 from PIL import Image
 from pathlib import Path
-from typing import Union
+from typing import Union, Tuple
 from time import time as now
 from asyncio import create_task
 
@@ -24,7 +24,7 @@ DX =  0.100  # mm
 DYDX = 1     # mm
 
 
-def bmp_to_point_cloud(path: Union[Path, str], extra_offset=0.0) -> o3d.geometry.PointCloud:
+def bmp_to_point_cloud(path: Union[Path, str], extra_offset=0.0) -> Tuple[o3d.geometry.PointCloud, str]:
     """Takes a bmp file path and converts
     it to an open3d point cloud."""
     t1 = now()
