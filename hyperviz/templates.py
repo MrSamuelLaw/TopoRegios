@@ -66,7 +66,15 @@ class Standard:
             policy = self.sizePolicy()
             policy.setHorizontalPolicy(QSizePolicy.Expanding)
             self.setAlignment(Qt.AlignCenter)
+
+    class Square(QWidget):
         
+        def __init__(self, parent=None):
+            super().__init__(parent=parent)
+        
+        def heightForWidth(self, width: int) -> int:
+            return width*1.0
+
     class Dialog(QDialog):
         
         def __init__(self, parent=None):
@@ -378,7 +386,7 @@ class ComparisonDialog(Standard.AsyncDialog):
         self.scan_dropdown.setToolTip('Point Cloud that represents the scan/actual data')
         self.scan_dropdown.addItems([target.name])
         self.scan_dropdown.setCurrentText(target.name)
-        layout.addWidget(self.scan_dropdown, currow, 1, 1, 2)
+        layout.addWidget(self.scan_dropdown, currow, 1, 1, 3)
 
         currow += 1
         # setup the target drop down
@@ -386,7 +394,7 @@ class ComparisonDialog(Standard.AsyncDialog):
         layout.addWidget(label, currow, 0)
         self.target_dropdown = QComboBox(parent=self)
         self.target_dropdown.setToolTip('Point Cloud that represents the CAD/desired data')
-        layout.addWidget(self.target_dropdown, currow, 1, 1, 2)
+        layout.addWidget(self.target_dropdown, currow, 1, 1, 3)
 
         currow += 1
         # set up the labels
@@ -396,6 +404,8 @@ class ComparisonDialog(Standard.AsyncDialog):
         layout.addWidget(label, currow, 1)
         label = Standard.Label('Max', parent=self)
         layout.addWidget(label, currow, 2)
+        label = Standard.Label('', parent=self)
+        layout.addWidget(label, currow, 3)
 
         currow += 1
         # set up spinners
@@ -410,20 +420,26 @@ class ComparisonDialog(Standard.AsyncDialog):
         self.max_spinbox.setToolTip('Maximum deviation to paint')
         self.max_spinbox.setSingleStep(0.10)
         layout.addWidget(self.max_spinbox, currow, 2)
+        self.refresh_button = Standard.Button('⟳')
+        self.refresh_button.clicked.connect(self.refresh)
+        layout.addWidget(self.refresh_button, currow, 3)
 
         # assignt the values to the combobox
         self.target_dropdown.currentTextChanged.connect(self.on_dropdown_changed)
         self.target_dropdown.addItems([m.name for m in self._model_list if isinstance(m, O3DPointCloudModel) and m is not self._scan_cloud])
 
+        self.min_spinbox.valueChanged.connect(self.on_value_changed)
+        self.max_spinbox.valueChanged.connect(self.on_value_changed)
+        self.steps_spinbox.valueChanged.connect(self.on_value_changed)
+        self.steps_spinbox.setValue(self._default_steps)
+
+    def refresh(self):
         # assign default values to spinners
         self._deltas = self.compute_deltas(self._scan_cloud, self._target_cloud)
         self.min_spinbox.setValue(self._deltas.min())
-        self.min_spinbox.valueChanged.connect(self.on_value_changed)
         self.max_spinbox.setValue(self._deltas.max())
-        self.max_spinbox.valueChanged.connect(self.on_value_changed)
-        self.steps_spinbox.setValue(self._default_steps)
-        self.steps_spinbox.valueChanged.connect(self.on_value_changed)
-
+        self.on_value_changed(**{'forced': True})
+        
     def compute_deltas(self, scan_cloud: O3DPointCloudModel, target_cloud: O3DPointCloudModel):
         unsigned_deltas = scan_cloud.compute_point_cloud_distance(target_cloud.geometry)
         return np.asarray(unsigned_deltas)
@@ -462,8 +478,8 @@ class ComparisonDialog(Standard.AsyncDialog):
         self.steps_spinbox.setValue(self._default_steps)
         self.max_spinbox.setValue(self._deltas.max())
 
-    def on_value_changed(self, *args):
-        if any([sb.hasFocus() for sb in (self.min_spinbox, self.steps_spinbox, self.max_spinbox)]):
+    def on_value_changed(self, *args, **kwargs):
+        if any([sb.hasFocus() for sb in (self.min_spinbox, self.steps_spinbox, self.max_spinbox)]) or kwargs.get('forced'):
             # grab the data
             min_val = self.min_spinbox.value()
             max_val = self.max_spinbox.value()
@@ -930,6 +946,14 @@ class SidePanel(QWidget):
                 self.text.setMaximumWidth(500)
                 self.text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
                 layout.addWidget(self.text)
+
+                # create the color square
+                self.color_square = Standard.Square()
+                self.color_square.setMaximumWidth(20)
+                self.color_square.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
+                self.color_square.show()
+                layout.addWidget(self.color_square)
+
                 
                 # create the binding for the lock check box
                 self.locked_checkbox = QCheckBox(parent=self, text='L')
@@ -962,12 +986,16 @@ class SidePanel(QWidget):
                 self.model.transparent = bool(state)
 
             def _set_background_color(self, r: float, g: float, b: float):
-                self.setAttribute(Qt.WA_StyledBackground, True)
+                # self.setAttribute(Qt.WA_StyledBackground, True)
+                # r, g, b = [int(v*255) for v in (r, g, b)]
+                # self.setStyleSheet(f'background: rgb({r},{g},{b});')
+                self.color_square.setAttribute(Qt.WA_StyledBackground, True)
                 r, g, b = [int(v*255) for v in (r, g, b)]
-                self.setStyleSheet(f'background: rgb({r},{g},{b});')
+                self.color_square.setStyleSheet(f'background: rgb({r},{g},{b});')
 
             def _remove_background_color(self):
-                self.setStyleSheet('')
+                # self.setStyleSheet('')
+                self.color_square.setStyleSheet('')
 
             def on_paint_uniform_color(self):
                 # get a color from the color dialog

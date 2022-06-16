@@ -54,6 +54,7 @@ class Vizualizer():
         sys.stderr = self._sidepanel.console
         self._sidepanel.show()
         self.layout_fullscreen()
+        self._window.post_redraw()
 
         # pass the window to the controller
         self.running.true()

@@ -1,0 +1,8 @@
+*__pycache__
+*.venv
+*sandbox.py
+*sandbox.ipynb
+*.vscode
+*misc
+*geometry_files
+*quickstart.py
